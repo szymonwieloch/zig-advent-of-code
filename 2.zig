@@ -16,22 +16,26 @@ pub fn main() !void {
 
     var buf_reader = std.io.bufferedReader(file.reader());
     const in_stream = buf_reader.reader().any();
-    const safe = try totalSafe(in_stream, alloc);
-    std.debug.print("Safe: {}\n", .{safe});
+    const safe1, const safe2 = try totalSafe(in_stream, alloc);
+    std.debug.print("Safe: {}\nSafe after removing: {}\n", .{ safe1, safe2 });
 }
 
 ///Parse input file
-fn totalSafe(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize {
-    var result: usize = 0;
+fn totalSafe(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ usize, usize }) {
+    var safe1: usize = 0;
+    var safe2: usize = 0;
     while (try in_stream.readUntilDelimiterOrEofAlloc(alloc, '\n', 1024)) |line| {
         defer alloc.free(line);
         const nums = try parseLine(line, alloc);
         defer nums.deinit();
         if (isSafe(nums.items)) {
-            result += 1;
+            safe1 += 1;
+        }
+        if (try isSafeAfterRemoving(nums.items, alloc)) {
+            safe2 += 1;
         }
     }
-    return result;
+    return .{ safe1, safe2 };
 }
 
 fn parseLine(line: []const u8, alloc: std.mem.Allocator) !std.ArrayList(i32) {
@@ -72,6 +76,21 @@ fn isSafe(levels: []const i32) bool {
         if (!sameDirection(firstDiff, diff)) return false;
     }
     return true;
+}
+
+fn isSafeAfterRemoving(levels: []const i32, alloc: std.mem.Allocator) !bool {
+    if (isSafe(levels)) return true;
+    var newLevels = std.ArrayList(i32).init(alloc);
+    defer newLevels.deinit();
+    for (0..levels.len) |rmIdx| {
+        newLevels.clearRetainingCapacity();
+        for (levels, 0..) |level, idx| {
+            if (idx == rmIdx) continue;
+            try newLevels.append(level);
+        }
+        if (isSafe(newLevels.items)) return true;
+    }
+    return false;
 }
 
 const t = std.testing;
@@ -116,6 +135,13 @@ test isSafe {
     try t.expect(!isSafe(&[_]i32{ 1, 2, 3, 3, 6, 8 })); // non-ascending
     try t.expect(!isSafe(&[_]i32{ 1, 2, 3, 2, 6, 8, 9 })); // non-ascending
     try t.expect(!isSafe(&[_]i32{ 1, 2, 3, 7, 8 })); // diff too big
+}
+
+test isSafeAfterRemoving {
+    try t.expect(!(try isSafeAfterRemoving(&[_]i32{ 1, 2, 7, 8, 9 }, t.allocator)));
+    try t.expect(!(try isSafeAfterRemoving(&[_]i32{ 9, 7, 6, 2, 1 }, t.allocator)));
+    try t.expect(try isSafeAfterRemoving(&[_]i32{ 1, 3, 2, 4, 5 }, t.allocator));
+    try t.expect(try isSafeAfterRemoving(&[_]i32{ 8, 6, 4, 4, 1 }, t.allocator));
 }
 
 test "totalSafe" {

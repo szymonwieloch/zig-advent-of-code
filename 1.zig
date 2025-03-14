@@ -38,8 +38,9 @@ pub fn main() !void {
     defer lists.list2.deinit();
     std.mem.sort(i32, lists.list1.items, {}, comptime std.sort.asc(i32));
     std.mem.sort(i32, lists.list2.items, {}, comptime std.sort.asc(i32));
-    const result = listsDistance(lists.list1.items, lists.list2.items);
-    std.debug.print("Result: {}\n", .{result});
+    const dist = listsDistance(lists.list1.items, lists.list2.items);
+    const similarity = try similarityScore(lists.list1.items, lists.list2.items, alloc);
+    std.debug.print("Distance: {}\nSimilarity: {}\n", .{ dist, similarity });
 }
 
 /// Reads two lists from the input file.
@@ -98,6 +99,19 @@ fn distance(x: i32, y: i32) i32 {
     return if (result > 0) result else -result;
 }
 
+fn similarityScore(list1: []const i32, list2: []const i32, alloc: std.mem.Allocator) !i32 {
+    var counts = std.AutoHashMap(i32, i32).init(alloc);
+    defer counts.deinit();
+    for (list2) |y| {
+        (try counts.getOrPutValue(y, 0)).value_ptr.* += 1;
+    }
+    var result: i32 = 0;
+    for (list1) |x| {
+        result += x * (counts.get(x) orelse 0);
+    }
+    return result;
+}
+
 test "parse correct line" {
     const line = "1 2\n";
     const entry = try parseLine(line);
@@ -152,4 +166,10 @@ test listsDistance {
     const list1 = [_]i32{ 1, 2, 3 };
     const list2 = [_]i32{ -3, 3, 0 };
     try expect(listsDistance(&list1, &list2) == 8);
+}
+
+test similarityScore {
+    const list1 = [_]i32{ 1, 2, 3 };
+    const list2 = [_]i32{ 3, 3, 1 };
+    try expect(try similarityScore(&list1, &list2, talloc) == 7);
 }
