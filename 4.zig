@@ -19,6 +19,8 @@ pub fn main() !void {
 }
 
 const Line = std.ArrayList(u8);
+
+/// Safe wrapper around the input matrix - allows safe checks of indexes
 const Matrix = struct {
     data: std.ArrayList(Line),
     xmax: isize,
@@ -45,12 +47,14 @@ const Matrix = struct {
 };
 const ParsingError = error{InvalidInput};
 
+/// Loads the input data file
 fn loadFile(alloc: std.mem.Allocator) !Matrix {
     var file = try std.fs.cwd().openFile("4.txt", .{});
     defer file.close();
     return try parseInput(file.reader().any(), alloc);
 }
 
+/// Parses input data stream
 fn parseInput(file: std.io.AnyReader, alloc: std.mem.Allocator) !Matrix {
     var result = std.ArrayList(Line).init(alloc);
     errdefer {
@@ -78,6 +82,7 @@ fn parseInput(file: std.io.AnyReader, alloc: std.mem.Allocator) !Matrix {
 
 const word = "XMAS";
 
+/// Direction is a unit length, 2-dimensional vector that indicatets a possible direction of the given move.
 const Direction = struct {
     x: isize,
     y: isize,
@@ -87,6 +92,7 @@ const Direction = struct {
     }
 };
 
+/// All possible directions
 const directions = [_]Direction{
     Direction{ .x = -1, .y = -1 },
     Direction{ .x = -1, .y = 0 },
@@ -98,6 +104,7 @@ const directions = [_]Direction{
     Direction{ .x = 1, .y = 1 },
 };
 
+/// All directions at an angle (X shape)
 const x_directions = [_]Direction{
     Direction{ .x = -1, .y = -1 },
     Direction{ .x = 1, .y = -1 },
@@ -105,6 +112,7 @@ const x_directions = [_]Direction{
     Direction{ .x = -1, .y = 1 },
 };
 
+/// Finds all "XMAS" words
 fn findXmasWords(m: *const Matrix) usize {
     var count: usize = 0;
     for (0..@intCast(m.xmax)) |x| {
@@ -119,6 +127,7 @@ fn findXmasWords(m: *const Matrix) usize {
     return count;
 }
 
+/// Checks if the word "XMAS" is present at the given position, at the provided direction
 fn wordMatches(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
     var curx = x;
     var cury = y;
@@ -133,6 +142,7 @@ fn wordMatches(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
     return true;
 }
 
+/// Finds all "X" shaped "MAS" words
 fn findMasXes(m: *const Matrix) usize {
     var count: usize = 0;
     for (0..@intCast(m.xmax)) |x| {
@@ -145,6 +155,7 @@ fn findMasXes(m: *const Matrix) usize {
     return count;
 }
 
+/// Checks if "X" is present at the given position
 fn isX(m: *const Matrix, x: isize, y: isize) bool {
     var masDirs = std.BoundedArray(Direction, 8).init(0) catch unreachable;
     for (x_directions) |dir| {
@@ -160,6 +171,7 @@ fn isX(m: *const Matrix, x: isize, y: isize) bool {
     return false;
 }
 
+/// Checks if the word "MAS: is present at the given position and direction
 fn isMas(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
     const mPosX = x + dir.x;
     const mPosY = y + dir.y;
@@ -171,6 +183,7 @@ fn isMas(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
 }
 
 const t = std.testing;
+/// Matrix provided in the task description
 const exampleInput =
     \\MMMSXXMASM
     \\MSAMXMSMSA
@@ -184,6 +197,7 @@ const exampleInput =
     \\MXMXAXMASX
 ;
 
+/// For testing purposes parses the example matrix
 fn exampleMatrix() !Matrix {
     var stream = std.io.fixedBufferStream(exampleInput);
     const reader = stream.reader();

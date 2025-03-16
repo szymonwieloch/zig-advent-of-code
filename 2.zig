@@ -38,6 +38,7 @@ fn totalSafe(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tu
     return .{ safe1, safe2 };
 }
 
+/// Parses a single line of input
 fn parseLine(line: []const u8, alloc: std.mem.Allocator) !std.ArrayList(i32) {
     var list = std.ArrayList(i32).init(alloc);
     errdefer list.deinit();
@@ -52,6 +53,7 @@ fn parseLine(line: []const u8, alloc: std.mem.Allocator) !std.ArrayList(i32) {
     return list;
 }
 
+/// Checks if the given diff is safe according to the task definition  >=1 abs(diff) <=3
 fn isDiffSafe(diff: i32) bool {
     return switch (diff) {
         -3...-1 => true,
@@ -60,12 +62,14 @@ fn isDiffSafe(diff: i32) bool {
     };
 }
 
+/// Check if two adjacent diffs signs are equal
 fn sameDirection(diff1: i32, diff2: i32) bool {
     const sign1 = diff1 < 0;
     const sign2 = diff2 < 0;
     return sign1 == sign2;
 }
 
+/// Checks if the given list of levels is safe
 fn isSafe(levels: []const i32) bool {
     if (levels.len < 2) return true;
     const firstDiff = levels[1] - levels[0];
@@ -78,6 +82,7 @@ fn isSafe(levels: []const i32) bool {
     return true;
 }
 
+/// Checks if the given list of levels is safe after removing an
 fn isSafeAfterRemoving(levels: []const i32, alloc: std.mem.Allocator) !bool {
     if (isSafe(levels)) return true;
     var newLevels = std.ArrayList(i32).init(alloc);
@@ -156,6 +161,7 @@ test "totalSafe" {
     var stream = std.io.fixedBufferStream(input);
     const reader = stream.reader();
     const anyReader = reader.any();
-    const result = try totalSafe(anyReader, t.allocator);
-    try t.expect(result == 2);
+    const result, const after_removing = try totalSafe(anyReader, t.allocator);
+    try t.expectEqual(result, 2);
+    try t.expectEqual(after_removing, 4);
 }

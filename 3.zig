@@ -22,6 +22,7 @@ pub fn main() !void {
     std.debug.print("Result: {}\nWith do/don'ts: {}\n", .{ mulSum, mulSumWithDoDonts });
 }
 
+/// Returns sum of "mul" elements in the given stream
 fn sumMulsInStream(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize {
     var result: usize = 0;
     while (try in_stream.readUntilDelimiterOrEofAlloc(alloc, '\n', 110240)) |line| {
@@ -31,6 +32,7 @@ fn sumMulsInStream(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize
     return result;
 }
 
+/// Returns sum of "mul" elements in the given stream, but only those after "do" and not after "don't" words
 fn sumMulsInStreamWithDoDonts(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize {
     var result: usize = 0;
     var enabled = true;
@@ -45,6 +47,7 @@ fn sumMulsInStreamWithDoDonts(in_stream: std.io.AnyReader, alloc: std.mem.Alloca
 
 const MulsSum = std.meta.Tuple(&.{ usize, bool });
 
+/// Returns sum of "mul" object in the given line and the latest do/don't status
 fn sumMulsWithDoDont(line: []const u8, startsEnabled: bool) MulsSum {
     var result: usize = 0;
     var enabled = startsEnabled;
@@ -63,6 +66,7 @@ fn sumMulsWithDoDont(line: []const u8, startsEnabled: bool) MulsSum {
     return .{ result, enabled };
 }
 
+/// Returns sum of "mul" objects in the given line of input
 fn sumMuls(line: []const u8) usize {
     var result: usize = 0;
     for (0..line.len) |i| {
@@ -83,6 +87,7 @@ const comma = ',';
 const do = "do()";
 const dont = "don't()";
 
+/// Evaluates "mul" object - returns value if it is present at the beginning of the string null otherwise
 fn evalMul(val: []const u8) ?usize {
     var str = val[0..];
     if (!std.mem.startsWith(u8, str, prefix)) return null;
@@ -106,6 +111,7 @@ fn isDont(val: []const u8) bool {
 
 const ConsumedNumber = std.meta.Tuple(&.{ usize, []const u8 });
 
+/// Reads a number and returns string after the number
 fn consumeNumber(str: []const u8) ?ConsumedNumber {
     if (str.len == 0) {
         return null;
@@ -125,6 +131,7 @@ fn consumeNumber(str: []const u8) ?ConsumedNumber {
     return ConsumedNumber{ num, str[str_num.len..] };
 }
 
+/// Gets one character from the string
 fn consumeCharacter(str: []const u8, c: u8) ?[]const u8 {
     return if (str.len == 0 or str[0] != c) null else str[1..];
 }
