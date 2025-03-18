@@ -1,6 +1,7 @@
 //! Solution tot the challenge: https://adventofcode.com/2024/day/5
 
 const std = @import("std");
+const common = @import("common.zig");
 
 /// Typedef of the integer input - allows a quick change
 const Int = u32;
@@ -41,14 +42,9 @@ const Mode = enum { rules, pages };
 const InputError = error{FormatError};
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = common.Allocator{};
+    defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status != .ok) {
-            std.debug.print("Failed to deinitialize the allocator: {}\n", .{deinit_status});
-        }
-    }
     var file = try std.fs.cwd().openFile("5.txt", .{});
     defer file.close();
     var input = try parseInput(file.reader().any(), alloc);

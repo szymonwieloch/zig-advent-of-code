@@ -1,16 +1,12 @@
 //! Solution tot the challenge: https://adventofcode.com/2024/day/4
 
 const std = @import("std");
+const common = @import("common.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = common.Allocator{};
+    defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status != .ok) {
-            std.debug.print("Failed to deinitialize the allocator: {}\n", .{deinit_status});
-        }
-    }
     const m = try loadFile(alloc);
     defer m.deinit();
     const xmas = findXmasWords(&m);

@@ -1,16 +1,12 @@
 //! Solution to this AOC problem: https://adventofcode.com/2024/day/1
 
 const std = @import("std");
+const common = @import("common.zig");
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = common.Allocator{};
+    defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status != .ok) {
-            std.debug.print("Failed to deinitialize the allocator: {}\n", .{deinit_status});
-        }
-    }
     var file = try std.fs.cwd().openFile("2.txt", .{});
     defer file.close();
 
