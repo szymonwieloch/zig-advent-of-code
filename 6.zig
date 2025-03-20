@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const assert = std.debug.assert;
 
 pub fn main() !void {
     var gpa = common.Allocator{};
@@ -11,8 +12,10 @@ pub fn main() !void {
     defer file.close();
     var map, const gpos = try parseInput(file.reader().any(), alloc);
     defer map.deinit();
-    const positions = try simulateGuardian(map, gpos, alloc);
-    std.debug.print("Positions: {}\n", .{positions});
+    var positions = try simulateGuardian(map, gpos, alloc);
+    defer positions.deinit();
+    const block_pos = try tryPlacingObstacles(&map, positions, gpos, alloc);
+    std.debug.print("Positions: {}\nPlaces to put an obstacle: {}\n", .{ positions.count(), block_pos });
 }
 
 const InputError = error{ InvalidCharacter, RowLengthMismatch, NoGuardian };
@@ -58,6 +61,16 @@ const Map = struct {
     fn isValid(self: Map, x: isize, y: isize) bool {
         return self.at(x, y) != null;
     }
+
+    fn placeObstacle(self: *Map, x: isize, y: isize) void {
+        assert(self.at(x, y) == .empty);
+        self.map.items[@intCast(x)].items[@intCast(y)] = .obstacle;
+    }
+
+    fn removeObstacle(self: *Map, x: isize, y: isize) void {
+        assert(self.at(x, y) == .obstacle);
+        self.map.items[@intCast(x)].items[@intCast(y)] = .empty;
+    }
 };
 
 const Position = struct {
@@ -76,10 +89,13 @@ const Direction = struct {
         @panic("invalid direction");
     }
 };
+
 const up = Direction{ .x = -1, .y = 0 };
 const down = Direction{ .x = 1, .y = 0 };
 const right = Direction{ .x = 0, .y = 1 };
 const left = Direction{ .x = 0, .y = -1 };
+
+const PositionAndDirection = struct { pos: Position, dir: Direction };
 
 /// Parses the input stream
 fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ Map, Position }) {
@@ -156,23 +172,24 @@ test parseInput {
 }
 
 /// Returns the number of visited fields
-fn simulateGuardian(map: Map, gpos: Position, alloc: std.mem.Allocator) !usize {
+fn simulateGuardian(map: Map, gpos: Position, alloc: std.mem.Allocator) !std.AutoHashMap(Position, void) {
     var visited_pos = std.AutoHashMap(Position, void).init(alloc);
-    defer visited_pos.deinit();
+    errdefer visited_pos.deinit();
     var dir = up;
     var curr_pos = gpos;
     while (true) {
         try visited_pos.put(curr_pos, void{});
         curr_pos, dir = nextMove(map, curr_pos, dir) orelse break;
     }
-    return visited_pos.count();
+    return visited_pos;
 }
 
 test "check example input from part 1" {
     var map, const gpos = try parseExampleMap();
     defer map.deinit();
-    const positions = simulateGuardian(map, gpos, t.allocator);
-    try t.expectEqual(41, positions);
+    var positions = try simulateGuardian(map, gpos, t.allocator);
+    defer positions.deinit();
+    try t.expectEqual(41, positions.count());
 }
 
 /// Makes one move on the map
@@ -186,4 +203,40 @@ fn nextMove(map: Map, gpos: Position, dir: Direction) ?std.meta.Tuple(&.{ Positi
         .empty => .{ new_pos, dir },
         .obstacle => .{ gpos, dir.rotate() },
     };
+}
+
+/// Checks all possible positions to see if we can place an obstacle
+fn tryPlacingObstacles(map: *Map, positions: std.AutoHashMap(Position, void), gpos: Position, alloc: std.mem.Allocator) !usize {
+    var result: usize = 0;
+    var pos_it = positions.keyIterator();
+    while (pos_it.next()) |pos| {
+        if (std.meta.eql(pos.*, gpos)) continue;
+        map.placeObstacle(pos.x, pos.y);
+        if (try guardianIsStuck(map.*, gpos, alloc)) result += 1;
+        map.removeObstacle(pos.x, pos.y);
+    }
+    return result;
+}
+
+fn guardianIsStuck(map: Map, gpos: Position, alloc: std.mem.Allocator) !bool {
+    var reached = std.AutoHashMap(PositionAndDirection, void).init(alloc);
+    defer reached.deinit();
+    var dir = up;
+    var curr_pos = gpos;
+    while (true) {
+        const pd = PositionAndDirection{ .pos = curr_pos, .dir = dir };
+        if (reached.contains(pd)) return true;
+        try reached.putNoClobber(pd, void{});
+        curr_pos, dir = nextMove(map, curr_pos, dir) orelse return false;
+    }
+    unreachable;
+}
+
+test "place obstacles" {
+    var map, const gpos = try parseExampleMap();
+    defer map.deinit();
+    var positions = try simulateGuardian(map, gpos, t.allocator);
+    defer positions.deinit();
+    const valid_pos = try tryPlacingObstacles(&map, positions, gpos, t.allocator);
+    try t.expectEqual(6, valid_pos);
 }
