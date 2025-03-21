@@ -28,6 +28,7 @@ const LineIterator = struct {
     }
 };
 
+/// Splits input into lines.
 pub fn lineIterator(reader: std.io.AnyReader, alloc: std.mem.Allocator) LineIterator {
     return LineIterator{
         .line = std.ArrayList(u8).init(alloc),
@@ -50,4 +51,22 @@ test lineIterator {
     try t.expectEqualStrings("def", try line_it.next());
     try t.expectEqualStrings("ghi", try line_it.next());
     try t.expectError(error.EndOfStream, line_it.next());
+}
+
+/// Common procedure of parsing input file into a structure.
+pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocator, parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+    var file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    var buf_reader = std.io.bufferedReader(file.reader());
+    const in_stream = buf_reader.reader().any();
+    return parser(in_stream, alloc);
+}
+
+/// Common procedure of parsing example input into a structure.
+/// To be used only in tests.
+pub fn parseExample(comptime Input: type, input: []const u8, parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+    var stream = std.io.fixedBufferStream(input);
+    const reader = stream.reader();
+    const anyReader = reader.any();
+    return parser(anyReader, t.allocator);
 }
