@@ -54,7 +54,7 @@ test lineIterator {
 }
 
 /// Common procedure of parsing input file into a structure.
-pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocator, parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocator, comptime parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
     var buf_reader = std.io.bufferedReader(file.reader());
@@ -64,9 +64,92 @@ pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocato
 
 /// Common procedure of parsing example input into a structure.
 /// To be used only in tests.
-pub fn parseExample(comptime Input: type, input: []const u8, parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+pub fn parseExample(comptime Input: type, input: []const u8, comptime parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
     var stream = std.io.fixedBufferStream(input);
     const reader = stream.reader();
     const anyReader = reader.any();
     return parser(anyReader, t.allocator);
+}
+
+pub const InputError = error{ RowLengthMismatch, InvalidCharacter };
+
+/// Creates a 2D matrix of type T.
+pub fn Matrix(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        pub const Row = std.ArrayList(T);
+
+        data: std.ArrayList(Row),
+        xmax: isize,
+        ymax: isize,
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return Self{ .data = std.ArrayList(Row).init(alloc), .xmax = 0, .ymax = 0 };
+        }
+
+        pub fn isValid(self: *const Self, x: isize, y: isize) bool {
+            return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
+        }
+
+        pub fn at(self: *const Self, x: isize, y: isize) ?T {
+            return if (self.isValid(x, y)) self.data.items[@intCast(x)].items[@intCast(y)] else null;
+        }
+
+        pub fn appendRow(self: *Self, row: Row) !void {
+            if (self.data.items.len > 0) {
+                if (row.items.len != self.ymax) return InputError.RowLengthMismatch;
+            } else {
+                self.ymax = @intCast(row.items.len);
+            }
+            try self.data.append(row);
+            self.xmax = @intCast(self.data.items.len);
+        }
+
+        pub fn xSize(self: Self) isize {
+            return self.xmax;
+        }
+
+        pub fn ySize(self: Self) isize {
+            return self.ymax;
+        }
+
+        pub fn deinit(self: *const Self) void {
+            for (self.data.items) |row| {
+                row.deinit();
+            }
+            self.data.deinit();
+        }
+    };
+}
+
+test Matrix {
+    const M = Matrix(u8);
+    var m = M.init(t.allocator);
+    defer m.deinit();
+    var row1 = M.Row.init(t.allocator);
+    try row1.appendSlice("abc");
+    var row2 = M.Row.init(t.allocator);
+    try row2.appendSlice("def");
+    var row3 = M.Row.init(t.allocator);
+    try row3.appendSlice("ghi");
+    try m.appendRow(row1);
+    try m.appendRow(row2);
+    try m.appendRow(row3);
+    try t.expectEqual('a', m.at(0, 0));
+    try t.expectEqual('b', m.at(0, 1));
+    try t.expectEqual('c', m.at(0, 2));
+    try t.expectEqual('d', m.at(1, 0));
+    try t.expectEqual('e', m.at(1, 1));
+    try t.expectEqual('f', m.at(1, 2));
+    try t.expectEqual('g', m.at(2, 0));
+    try t.expectEqual('h', m.at(2, 1));
+    try t.expectEqual('i', m.at(2, 2));
+    try t.expectEqual(null, m.at(3, 0));
+    try t.expectEqual(null, m.at(0, 3));
+    try t.expectEqual(false, m.isValid(-1, 0));
+    try t.expectEqual(false, m.isValid(0, -1));
+    try t.expectEqual(false, m.isValid(3, 0));
+    try t.expectEqual(false, m.isValid(0, 3));
+    try t.expectEqual(3, m.xSize());
+    try t.expectEqual(3, m.ySize());
 }
