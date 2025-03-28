@@ -1,4 +1,4 @@
-//! Solution tot the challenge: https://adventofcode.com/2024/day/9
+//! Solution tot the challenge: https://adventofcode.com/2024/day/10
 
 const std = @import("std");
 const common = @import("common.zig");

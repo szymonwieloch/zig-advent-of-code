@@ -2,7 +2,7 @@
 
 set -eou pipefail
 
-DONE=10
+DONE=11
 
 for i in $(seq 1 $DONE);
 do
