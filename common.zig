@@ -73,6 +73,19 @@ pub fn parseExample(comptime Input: type, input: []const u8, comptime parser: fn
 
 pub const InputError = error{ RowLengthMismatch, InvalidCharacter };
 
+pub const Position = struct {
+    x: isize,
+    y: isize,
+    pub fn move(self: Position, vec: Vector) Position {
+        return Position{ .x = self.x + vec.x, .y = self.y + vec.y };
+    }
+};
+
+pub const Vector = struct {
+    x: isize,
+    y: isize,
+};
+
 /// Creates a 2D matrix of type T.
 pub fn Matrix(comptime T: type) type {
     return struct {
@@ -87,12 +100,16 @@ pub fn Matrix(comptime T: type) type {
             return Self{ .data = std.ArrayList(Row).init(alloc), .xmax = 0, .ymax = 0 };
         }
 
-        pub fn isValid(self: *const Self, x: isize, y: isize) bool {
+        pub fn isValid(self: Self, x: isize, y: isize) bool {
             return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
         }
 
-        pub fn at(self: *const Self, x: isize, y: isize) ?T {
+        pub fn at(self: Self, x: isize, y: isize) ?T {
             return if (self.isValid(x, y)) self.data.items[@intCast(x)].items[@intCast(y)] else null;
+        }
+
+        pub fn atPos(self: Self, pos: Position) ?T {
+            return self.at(pos.x, pos.y);
         }
 
         pub fn appendRow(self: *Self, row: Row) !void {
@@ -113,7 +130,7 @@ pub fn Matrix(comptime T: type) type {
             return self.ymax;
         }
 
-        pub fn deinit(self: *const Self) void {
+        pub fn deinit(self: Self) void {
             for (self.data.items) |row| {
                 row.deinit();
             }
