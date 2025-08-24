@@ -27,11 +27,11 @@ pub fn main() !void {
     var file = try std.fs.cwd().openFile("1.txt", .{});
     defer file.close();
 
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const in_stream = buf_reader.reader().any();
-    var lists = try readInput(alloc, in_stream);
-    defer lists.list1.deinit();
-    defer lists.list2.deinit();
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    var lists = try readInput(alloc, &reader.interface);
+    defer lists.list1.deinit(alloc);
+    defer lists.list2.deinit(alloc);
     std.mem.sort(i32, lists.list1.items, {}, comptime std.sort.asc(i32));
     std.mem.sort(i32, lists.list2.items, {}, comptime std.sort.asc(i32));
     const dist = listsDistance(lists.list1.items, lists.list2.items);
@@ -40,17 +40,27 @@ pub fn main() !void {
 }
 
 /// Reads two lists from the input file.
-fn readInput(alloc: std.mem.Allocator, in_stream: std.io.AnyReader) !Lists {
-    var buf: [1024]u8 = undefined;
-    var list1 = std.ArrayList(i32).init(alloc);
-    errdefer list1.deinit();
-    var list2 = std.ArrayList(i32).init(alloc);
-    errdefer list2.deinit();
-    while (try in_stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
-        const entry = try parseLine(line);
-        try list1.append(entry.first);
-        try list2.append(entry.second);
+fn readInput(alloc: std.mem.Allocator, in_stream: *std.io.Reader) !Lists {
+    //var buf: [1024]u8 = undefined;
+    var list1 = std.ArrayList(i32).empty;
+    errdefer list1.deinit(alloc);
+    var list2 = std.ArrayList(i32).empty;
+    errdefer list2.deinit(alloc);
+
+    var line = std.io.Writer.Allocating.init(alloc);
+    defer line.deinit();
+
+    while (in_stream.streamDelimiter(&line.writer, '\n')) |_| {
+        const entry = try parseLine(line.written());
+        line.clearRetainingCapacity();
+        try list1.append(alloc, entry.first);
+        try list2.append(alloc, entry.second);
+    } else |err| {
+        if (err != std.io.Reader.StreamError.EndOfStream) {
+            return err;
+        }
     }
+
     return Lists{ .list1 = list1, .list2 = list2 };
 }
 
@@ -69,7 +79,7 @@ fn parseLine(line: []const u8) !LineEntry {
         } else if (second == null) {
             second = num;
         } else {
-            return LineParsingError.TooManyNumbers;
+            return error.TooManyNumbers;
         }
     }
     if (first) |f| {
@@ -77,7 +87,7 @@ fn parseLine(line: []const u8) !LineEntry {
             return LineEntry{ .first = f, .second = s };
         }
     }
-    return LineParsingError.NotEnoughNumbers;
+    return error.NotEnoughNumbers;
 }
 
 /// assumes inputs are sorted and have the same length
@@ -139,16 +149,17 @@ test "parse input file" {
     const input = "1 2\n3 4\n";
     var stream = std.io.fixedBufferStream(input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    const lists = try readInput(talloc, anyReader);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    var lists = try readInput(talloc, &new_reader.new_interface);
     try expect(lists.list1.items.len == 2);
     try expect(lists.list2.items.len == 2);
     try expect(lists.list1.items[0] == 1);
     try expect(lists.list1.items[1] == 3);
     try expect(lists.list2.items[0] == 2);
     try expect(lists.list2.items[1] == 4);
-    lists.list1.deinit();
-    lists.list2.deinit();
+    lists.list1.deinit(talloc);
+    lists.list2.deinit(talloc);
 }
 
 test distance {
