@@ -10,17 +10,21 @@ pub fn checkGpa(alloc: *Allocator) void {
     }
 }
 
+/// An iterator over lines in a generic input stream.
 const LineIterator = struct {
-    line: std.ArrayList(u8),
-    reader: std.io.AnyReader,
+    line: std.Io.Writer.Allocating,
+    reader: *std.Io.Reader,
 
     pub fn next(self: *LineIterator) ![]const u8 {
         self.line.clearRetainingCapacity();
-        self.reader.streamUntilDelimiter(self.line.writer(), '\n', null) catch |err| {
+        _ = self.reader.streamDelimiter(&self.line.writer, '\n') catch |err| {
             if (err != error.EndOfStream) return err;
-            if (self.line.items.len > 0) return self.line.items else return error.EndOfStream;
+            if (self.line.written().len > 0) return self.line.written() else return error.EndOfStream;
         };
-        return self.line.items;
+        _ = self.reader.takeByte() catch |err| {
+            if (err != error.EndOfStream) return err;
+        };
+        return self.line.written();
     }
 
     pub fn deinit(self: *LineIterator) void {
@@ -29,9 +33,9 @@ const LineIterator = struct {
 };
 
 /// Splits input into lines.
-pub fn lineIterator(reader: std.io.AnyReader, alloc: std.mem.Allocator) LineIterator {
+pub fn lineIterator(reader: *std.Io.Reader, alloc: std.mem.Allocator) LineIterator {
     return LineIterator{
-        .line = std.ArrayList(u8).init(alloc),
+        .line = std.io.Writer.Allocating.init(alloc),
         .reader = reader,
     };
 }
@@ -44,8 +48,9 @@ test lineIterator {
     ;
     var stream = std.io.fixedBufferStream(str);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    var line_it = lineIterator(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    var line_it = lineIterator(&new_reader.new_interface, t.allocator);
     defer line_it.deinit();
     try t.expectEqualStrings("abc", try line_it.next());
     try t.expectEqualStrings("def", try line_it.next());
@@ -96,9 +101,11 @@ pub fn Matrix(comptime T: type) type {
         xmax: isize,
         ymax: isize,
 
-        pub fn init(alloc: std.mem.Allocator) Self {
-            return Self{ .data = std.ArrayList(Row).init(alloc), .xmax = 0, .ymax = 0 };
-        }
+        pub const empty: Self = .{
+            .data = std.ArrayList(Row).empty,
+            .xmax = 0,
+            .ymax = 0,
+        };
 
         pub fn isValid(self: Self, x: isize, y: isize) bool {
             return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
@@ -112,13 +119,13 @@ pub fn Matrix(comptime T: type) type {
             return self.at(pos.x, pos.y);
         }
 
-        pub fn appendRow(self: *Self, row: Row) !void {
+        pub fn appendRow(self: *Self, alloc: std.mem.Allocator, row: Row) !void {
             if (self.data.items.len > 0) {
                 if (row.items.len != self.ymax) return InputError.RowLengthMismatch;
             } else {
                 self.ymax = @intCast(row.items.len);
             }
-            try self.data.append(row);
+            try self.data.append(alloc, row);
             self.xmax = @intCast(self.data.items.len);
         }
 
@@ -130,28 +137,28 @@ pub fn Matrix(comptime T: type) type {
             return self.ymax;
         }
 
-        pub fn deinit(self: Self) void {
-            for (self.data.items) |row| {
-                row.deinit();
+        pub fn deinit(self: *Self, alloc: std.mem.Allocator) void {
+            for (self.data.items) |*row| {
+                row.deinit(alloc);
             }
-            self.data.deinit();
+            self.data.deinit(alloc);
         }
     };
 }
 
 test Matrix {
     const M = Matrix(u8);
-    var m = M.init(t.allocator);
-    defer m.deinit();
-    var row1 = M.Row.init(t.allocator);
-    try row1.appendSlice("abc");
-    var row2 = M.Row.init(t.allocator);
-    try row2.appendSlice("def");
-    var row3 = M.Row.init(t.allocator);
-    try row3.appendSlice("ghi");
-    try m.appendRow(row1);
-    try m.appendRow(row2);
-    try m.appendRow(row3);
+    var m = M.empty;
+    defer m.deinit(t.allocator);
+    var row1 = M.Row.empty;
+    try row1.appendSlice(t.allocator, "abc");
+    var row2 = M.Row.empty;
+    try row2.appendSlice(t.allocator, "def");
+    var row3 = M.Row.empty;
+    try row3.appendSlice(t.allocator, "ghi");
+    try m.appendRow(t.allocator, row1);
+    try m.appendRow(t.allocator, row2);
+    try m.appendRow(t.allocator, row3);
     try t.expectEqual('a', m.at(0, 0));
     try t.expectEqual('b', m.at(0, 1));
     try t.expectEqual('c', m.at(0, 2));

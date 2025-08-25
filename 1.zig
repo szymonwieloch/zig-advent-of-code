@@ -41,7 +41,6 @@ pub fn main() !void {
 
 /// Reads two lists from the input file.
 fn readInput(alloc: std.mem.Allocator, in_stream: *std.io.Reader) !Lists {
-    //var buf: [1024]u8 = undefined;
     var list1 = std.ArrayList(i32).empty;
     errdefer list1.deinit(alloc);
     var list2 = std.ArrayList(i32).empty;
@@ -52,9 +51,14 @@ fn readInput(alloc: std.mem.Allocator, in_stream: *std.io.Reader) !Lists {
 
     while (in_stream.streamDelimiter(&line.writer, '\n')) |_| {
         const entry = try parseLine(line.written());
-        line.clearRetainingCapacity();
         try list1.append(alloc, entry.first);
         try list2.append(alloc, entry.second);
+        line.clearRetainingCapacity();
+        _ = in_stream.takeByte() catch |err| {
+            if (err != std.io.Reader.StreamError.EndOfStream) {
+                return err;
+            }
+        };
     } else |err| {
         if (err != std.io.Reader.StreamError.EndOfStream) {
             return err;
