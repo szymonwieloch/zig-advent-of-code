@@ -2,78 +2,78 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const t = std.testing;
 
 pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    const m = try loadFile(alloc);
-    defer m.deinit();
+    var m = try loadFile(alloc);
+    defer m.deinit(alloc);
     const xmas = findXmasWords(&m);
     const x_mas = findMasXes(&m);
     std.debug.print("XMAS: {}\nX-MAS: {}\n", .{ xmas, x_mas });
 }
 
-const Line = std.ArrayList(u8);
+// const Line = std.ArrayList(u8);
 
-/// Safe wrapper around the input matrix - allows safe checks of indexes
-const Matrix = struct {
-    data: std.ArrayList(Line),
-    xmax: isize,
-    ymax: isize,
+// /// Safe wrapper around the input matrix - allows safe checks of indexes
+// const Matrix = struct {
+//     data: std.ArrayList(Line),
+//     xmax: isize,
+//     ymax: isize,
 
-    pub fn init(data: std.ArrayList(Line)) Matrix {
-        return Matrix{ .data = data, .xmax = @intCast(data.items.len), .ymax = if (data.items.len > 0) @intCast(data.items[0].items.len) else 0 };
-    }
+//     pub fn init(data: std.ArrayList(Line)) Matrix {
+//         return Matrix{ .data = data, .xmax = @intCast(data.items.len), .ymax = if (data.items.len > 0) @intCast(data.items[0].items.len) else 0 };
+//     }
 
-    pub fn isValid(self: *const Matrix, x: isize, y: isize) bool {
-        return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
-    }
+//     pub fn isValid(self: *const Matrix, x: isize, y: isize) bool {
+//         return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
+//     }
 
-    pub fn get(self: *const Matrix, x: isize, y: isize) ?u8 {
-        return if (self.isValid(x, y)) self.data.items[@intCast(x)].items[@intCast(y)] else null;
-    }
+//     pub fn get(self: *const Matrix, x: isize, y: isize) ?u8 {
+//         return if (self.isValid(x, y)) self.data.items[@intCast(x)].items[@intCast(y)] else null;
+//     }
 
-    pub fn deinit(self: *const Matrix) void {
-        for (self.data.items) |line| {
-            line.deinit();
-        }
-        self.data.deinit();
-    }
-};
+//     pub fn deinit(self: *const Matrix) void {
+//         for (self.data.items) |line| {
+//             line.deinit();
+//         }
+//         self.data.deinit();
+//     }
+// };
+
+const Matrix = common.Matrix(u8);
 const ParsingError = error{InvalidInput};
 
 /// Loads the input data file
 fn loadFile(alloc: std.mem.Allocator) !Matrix {
     var file = try std.fs.cwd().openFile("4.txt", .{});
     defer file.close();
-    return try parseInput(file.reader().any(), alloc);
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    return try parseInput(&reader.interface, alloc);
 }
 
 /// Parses input data stream
-fn parseInput(file: std.io.AnyReader, alloc: std.mem.Allocator) !Matrix {
-    var result = std.ArrayList(Line).init(alloc);
-    errdefer {
-        for (result.items) |line| {
-            line.deinit();
-        }
-        result.deinit();
-    }
+fn parseInput(file: *std.io.Reader, alloc: std.mem.Allocator) !Matrix {
+    var result = Matrix.empty;
+    errdefer result.deinit(alloc);
 
-    while (true) {
-        var line = Line.init(alloc);
-        errdefer line.deinit();
-        file.streamUntilDelimiter(line.writer(), '\n', null) catch |err| {
-            if (err != error.EndOfStream) {
-                return err;
-            }
-            if (line.items.len != 0) {
-                try result.append(line);
-            }
-            return Matrix.init(result);
-        };
-        try result.append(line);
+    var line_it = common.lineIterator(file, alloc);
+    defer line_it.deinit();
+
+    while (line_it.next()) |line| {
+        var row = Matrix.Row.empty;
+        errdefer row.deinit(alloc);
+        try row.appendSlice(alloc, line);
+        try result.appendRow(alloc, row);
+    } else |err| {
+        if (err != std.io.Reader.StreamError.EndOfStream) {
+            return err;
+        }
     }
+    return result;
 }
 
 const word = "XMAS";
@@ -113,7 +113,7 @@ fn findXmasWords(m: *const Matrix) usize {
     var count: usize = 0;
     for (0..@intCast(m.xmax)) |x| {
         for (0..@intCast(m.ymax)) |y| {
-            if (m.get(@intCast(x), @intCast(y)) == word[0]) {
+            if (m.at(@intCast(x), @intCast(y)) == word[0]) {
                 for (directions) |dir| {
                     if (wordMatches(m, @intCast(x), @intCast(y), dir)) count += 1;
                 }
@@ -128,7 +128,7 @@ fn wordMatches(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
     var curx = x;
     var cury = y;
     for (0..word.len) |i| {
-        const ch = m.get(curx, cury);
+        const ch = m.at(curx, cury);
         if (ch == null or ch != word[i]) {
             return false;
         }
@@ -153,15 +153,18 @@ fn findMasXes(m: *const Matrix) usize {
 
 /// Checks if "X" is present at the given position
 fn isX(m: *const Matrix, x: isize, y: isize) bool {
-    var masDirs = std.BoundedArray(Direction, 8).init(0) catch unreachable;
+    var buffer: [8]Direction = undefined;
+    var masDirs = std.ArrayList(Direction).initBuffer(&buffer);
+
+    //var masDirs = std.BoundedArray(Direction, 8).init(0) catch unreachable;
     for (x_directions) |dir| {
         if (isMas(m, x, y, dir)) {
-            for (masDirs.constSlice()) |d| {
+            for (masDirs.items) |d| {
                 if (dir.isPerpendicular(d)) {
                     return true;
                 }
             }
-            masDirs.appendAssumeCapacity(dir);
+            masDirs.appendBounded(dir) catch unreachable;
         }
     }
     return false;
@@ -175,10 +178,9 @@ fn isMas(m: *const Matrix, x: isize, y: isize, dir: Direction) bool {
     const aPosY = y;
     const sPosX = x - dir.x;
     const sPosY = y - dir.y;
-    return m.get(mPosX, mPosY) == 'M' and m.get(aPosX, aPosY) == 'A' and m.get(sPosX, sPosY) == 'S';
+    return m.at(mPosX, mPosY) == 'M' and m.at(aPosX, aPosY) == 'A' and m.at(sPosX, sPosY) == 'S';
 }
 
-const t = std.testing;
 /// Matrix provided in the task description
 const exampleInput =
     \\MMMSXXMASM
@@ -197,44 +199,45 @@ const exampleInput =
 fn exampleMatrix() !Matrix {
     var stream = std.io.fixedBufferStream(exampleInput);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return try parseInput(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return try parseInput(&new_reader.new_interface, t.allocator);
 }
 
 test parseInput {
-    const m = try exampleMatrix();
-    defer m.deinit();
+    var m = try exampleMatrix();
+    defer m.deinit(t.allocator);
     try t.expectEqual(10, m.xmax);
     try t.expectEqual(10, m.ymax);
-    try t.expect(m.get(-1, 0) == null);
-    try t.expect(m.get(0, -1) == null);
-    try t.expect(m.get(0, 0) == 'M');
-    try t.expect(m.get(0, 10) == null);
-    try t.expect(m.get(0, 9) == 'M');
-    try t.expect(m.get(9, 9) == 'X');
+    try t.expect(m.at(-1, 0) == null);
+    try t.expect(m.at(0, -1) == null);
+    try t.expect(m.at(0, 0) == 'M');
+    try t.expect(m.at(0, 10) == null);
+    try t.expect(m.at(0, 9) == 'M');
+    try t.expect(m.at(9, 9) == 'X');
 }
 
 test "data from the example" {
-    const m = try exampleMatrix();
-    defer m.deinit();
+    var m = try exampleMatrix();
+    defer m.deinit(t.allocator);
     try t.expectEqual(18, findXmasWords(&m));
 }
 
 test "data from the example, part 2" {
-    const m = try exampleMatrix();
-    defer m.deinit();
+    var m = try exampleMatrix();
+    defer m.deinit(t.allocator);
     try t.expectEqual(9, findMasXes(&m));
 }
 
 test isMas {
-    const m = try exampleMatrix();
-    defer m.deinit();
+    var m = try exampleMatrix();
+    defer m.deinit(t.allocator);
     try t.expect(isMas(&m, 1, 2, Direction{ .x = 0, .y = 1 }));
 }
 
 test isX {
-    const m = try exampleMatrix();
-    defer m.deinit();
+    var m = try exampleMatrix();
+    defer m.deinit(t.allocator);
     try t.expect(!isX(&m, 4, 2));
 }
 
