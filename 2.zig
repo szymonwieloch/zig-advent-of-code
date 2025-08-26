@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const t = std.testing;
 
 pub fn main() !void {
     var gpa = common.Allocator{};
@@ -9,26 +10,31 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("2.txt", .{});
     defer file.close();
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
 
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const in_stream = buf_reader.reader().any();
-    const safe1, const safe2 = try totalSafe(in_stream, alloc);
+    const safe1, const safe2 = try totalSafe(&reader.interface, alloc);
     std.debug.print("Safe: {}\nSafe after removing: {}\n", .{ safe1, safe2 });
 }
 
 ///Parse input file
-fn totalSafe(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ usize, usize }) {
+fn totalSafe(in_stream: *std.io.Reader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ usize, usize }) {
     var safe1: usize = 0;
     var safe2: usize = 0;
-    while (try in_stream.readUntilDelimiterOrEofAlloc(alloc, '\n', 1024)) |line| {
-        defer alloc.free(line);
-        const nums = try parseLine(line, alloc);
-        defer nums.deinit();
+    var line_it = common.lineIterator(in_stream, alloc);
+    defer line_it.deinit();
+    while (line_it.next()) |line| {
+        var nums = try parseLine(line, alloc);
+        defer nums.deinit(alloc);
         if (isSafe(nums.items)) {
             safe1 += 1;
         }
         if (try isSafeAfterRemoving(nums.items, alloc)) {
             safe2 += 1;
+        }
+    } else |err| {
+        if (err != std.io.Reader.StreamError.EndOfStream) {
+            return err;
         }
     }
     return .{ safe1, safe2 };
@@ -36,15 +42,15 @@ fn totalSafe(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tu
 
 /// Parses a single line of input
 fn parseLine(line: []const u8, alloc: std.mem.Allocator) !std.ArrayList(i32) {
-    var list = std.ArrayList(i32).init(alloc);
-    errdefer list.deinit();
+    var list = std.ArrayList(i32).empty;
+    errdefer list.deinit(alloc);
 
     var it = std.mem.splitAny(u8, line, " \n");
     while (it.next()) |word| {
         const stripped = std.mem.trim(u8, word, " \n");
         if (stripped.len == 0) continue;
         const num = try std.fmt.parseInt(i32, stripped, 10);
-        try list.append(num);
+        try list.append(alloc, num);
     }
     return list;
 }
@@ -81,25 +87,23 @@ fn isSafe(levels: []const i32) bool {
 /// Checks if the given list of levels is safe after removing an
 fn isSafeAfterRemoving(levels: []const i32, alloc: std.mem.Allocator) !bool {
     if (isSafe(levels)) return true;
-    var newLevels = std.ArrayList(i32).init(alloc);
-    defer newLevels.deinit();
+    var newLevels = std.ArrayList(i32).empty;
+    defer newLevels.deinit(alloc);
     for (0..levels.len) |rmIdx| {
         newLevels.clearRetainingCapacity();
         for (levels, 0..) |level, idx| {
             if (idx == rmIdx) continue;
-            try newLevels.append(level);
+            try newLevels.append(alloc, level);
         }
         if (isSafe(newLevels.items)) return true;
     }
     return false;
 }
 
-const t = std.testing;
-
 test "parse valid line" {
     const line = "1 2 3 4 5 6 7 8 9 10\n";
-    const list = try parseLine(line, t.allocator);
-    defer list.deinit();
+    var list = try parseLine(line, t.allocator);
+    defer list.deinit(t.allocator);
     try t.expect(list.items.len == 10);
     for (list.items, 1..) |item, i| {
         try t.expect(item == i);
@@ -156,8 +160,9 @@ test "totalSafe" {
     ;
     var stream = std.io.fixedBufferStream(input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    const result, const after_removing = try totalSafe(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    const result, const after_removing = try totalSafe(&new_reader.new_interface, t.allocator);
     try t.expectEqual(result, 2);
     try t.expectEqual(after_removing, 4);
 }

@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
+const t = std.testing;
 
 pub fn main() !void {
     var gpa = common.Allocator{};
@@ -9,34 +10,43 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("3.txt", .{});
     defer file.close();
-
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const in_stream = buf_reader.reader().any();
-    const mulSum = try sumMulsInStream(in_stream, alloc);
-    try file.seekTo(0);
-    const mulSumWithDoDonts = try sumMulsInStreamWithDoDonts(in_stream, alloc);
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    const mulSum = try sumMulsInStream(&reader.interface, alloc);
+    try reader.seekTo(0);
+    const mulSumWithDoDonts = try sumMulsInStreamWithDoDonts(&reader.interface, alloc);
     std.debug.print("Result: {}\nWith do/don'ts: {}\n", .{ mulSum, mulSumWithDoDonts });
 }
 
 /// Returns sum of "mul" elements in the given stream
-fn sumMulsInStream(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize {
+fn sumMulsInStream(in_stream: *std.io.Reader, alloc: std.mem.Allocator) !usize {
     var result: usize = 0;
-    while (try in_stream.readUntilDelimiterOrEofAlloc(alloc, '\n', 110240)) |line| {
-        defer alloc.free(line);
+    var line_it = common.lineIterator(in_stream, alloc);
+    defer line_it.deinit();
+    while (line_it.next()) |line| {
         result += sumMuls(line);
+    } else |err| {
+        if (err != std.io.Reader.StreamError.EndOfStream) {
+            return err;
+        }
     }
     return result;
 }
 
 /// Returns sum of "mul" elements in the given stream, but only those after "do" and not after "don't" words
-fn sumMulsInStreamWithDoDonts(in_stream: std.io.AnyReader, alloc: std.mem.Allocator) !usize {
+fn sumMulsInStreamWithDoDonts(in_stream: *std.io.Reader, alloc: std.mem.Allocator) !usize {
     var result: usize = 0;
     var enabled = true;
-    while (try in_stream.readUntilDelimiterOrEofAlloc(alloc, '\n', 110240)) |line| {
-        defer alloc.free(line);
+    var line_it = common.lineIterator(in_stream, alloc);
+    defer line_it.deinit();
+    while (line_it.next()) |line| {
         const res = sumMulsWithDoDont(line, enabled);
         result += res[0];
         enabled = res[1];
+    } else |err| {
+        if (err != std.io.Reader.StreamError.EndOfStream) {
+            return err;
+        }
     }
     return result;
 }
@@ -132,8 +142,6 @@ fn consumeCharacter(str: []const u8, c: u8) ?[]const u8 {
     return if (str.len == 0 or str[0] != c) null else str[1..];
 }
 
-const t = std.testing;
-
 test isDigit {
     try t.expect(isDigit('0'));
     try t.expect(isDigit('9'));
@@ -189,8 +197,9 @@ const example1 = "xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)
 test "check example from description" {
     var stream = std.io.fixedBufferStream(example1);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    try t.expect(try sumMulsInStream(anyReader, t.allocator) == 161);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    try t.expect(try sumMulsInStream(&new_reader.new_interface, t.allocator) == 161);
 }
 
 const example2 = "xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))";

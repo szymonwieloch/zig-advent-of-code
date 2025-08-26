@@ -2,9 +2,7 @@
 
 const std = @import("std");
 const common = @import("common.zig");
-const expect = std.testing.expect;
-const expectError = std.testing.expectError;
-const talloc = std.testing.allocator;
+const t = std.testing;
 
 /// A struct representing a single line of the input file.
 const LineEntry = struct {
@@ -46,19 +44,13 @@ fn readInput(alloc: std.mem.Allocator, in_stream: *std.io.Reader) !Lists {
     var list2 = std.ArrayList(i32).empty;
     errdefer list2.deinit(alloc);
 
-    var line = std.io.Writer.Allocating.init(alloc);
-    defer line.deinit();
+    var line_it = common.lineIterator(in_stream, alloc);
+    defer line_it.deinit();
 
-    while (in_stream.streamDelimiter(&line.writer, '\n')) |_| {
-        const entry = try parseLine(line.written());
+    while (line_it.next()) |line| {
+        const entry = try parseLine(line);
         try list1.append(alloc, entry.first);
         try list2.append(alloc, entry.second);
-        line.clearRetainingCapacity();
-        _ = in_stream.takeByte() catch |err| {
-            if (err != std.io.Reader.StreamError.EndOfStream) {
-                return err;
-            }
-        };
     } else |err| {
         if (err != std.io.Reader.StreamError.EndOfStream) {
             return err;
@@ -125,28 +117,28 @@ fn similarityScore(list1: []const i32, list2: []const i32, alloc: std.mem.Alloca
 test "parse correct line" {
     const line = "1 2\n";
     const entry = try parseLine(line);
-    try expect(entry.first == 1);
-    try expect(entry.second == 2);
+    try t.expect(entry.first == 1);
+    try t.expect(entry.second == 2);
 }
 
 test "parse line with too many numbers" {
     const line = "1 2 3\n";
-    try expectError(LineParsingError.TooManyNumbers, parseLine(line));
+    try t.expectError(LineParsingError.TooManyNumbers, parseLine(line));
 }
 
 test "parse line with not enough numbers" {
     const line = "1\n";
-    try expectError(LineParsingError.NotEnoughNumbers, parseLine(line));
+    try t.expectError(LineParsingError.NotEnoughNumbers, parseLine(line));
 }
 
 test "parse empty line" {
     const line = "\n";
-    try expectError(LineParsingError.NotEnoughNumbers, parseLine(line));
+    try t.expectError(LineParsingError.NotEnoughNumbers, parseLine(line));
 }
 
 test "parse line with invalid characters" {
     const line = "1 a\n";
-    try expectError(std.fmt.ParseIntError.InvalidCharacter, parseLine(line));
+    try t.expectError(std.fmt.ParseIntError.InvalidCharacter, parseLine(line));
 }
 
 test "parse input file" {
@@ -155,32 +147,32 @@ test "parse input file" {
     const reader = stream.reader();
     var buffer: [1024]u8 = undefined;
     var new_reader = reader.adaptToNewApi(&buffer);
-    var lists = try readInput(talloc, &new_reader.new_interface);
-    try expect(lists.list1.items.len == 2);
-    try expect(lists.list2.items.len == 2);
-    try expect(lists.list1.items[0] == 1);
-    try expect(lists.list1.items[1] == 3);
-    try expect(lists.list2.items[0] == 2);
-    try expect(lists.list2.items[1] == 4);
-    lists.list1.deinit(talloc);
-    lists.list2.deinit(talloc);
+    var lists = try readInput(t.allocator, &new_reader.new_interface);
+    try t.expect(lists.list1.items.len == 2);
+    try t.expect(lists.list2.items.len == 2);
+    try t.expect(lists.list1.items[0] == 1);
+    try t.expect(lists.list1.items[1] == 3);
+    try t.expect(lists.list2.items[0] == 2);
+    try t.expect(lists.list2.items[1] == 4);
+    lists.list1.deinit(t.allocator);
+    lists.list2.deinit(t.allocator);
 }
 
 test distance {
-    try expect(distance(1, 2) == 1);
-    try expect(distance(2, 1) == 1);
-    try expect(distance(0, 0) == 0);
-    try expect(distance(1, 1) == 0);
+    try t.expect(distance(1, 2) == 1);
+    try t.expect(distance(2, 1) == 1);
+    try t.expect(distance(0, 0) == 0);
+    try t.expect(distance(1, 1) == 0);
 }
 
 test listsDistance {
     const list1 = [_]i32{ 1, 2, 3 };
     const list2 = [_]i32{ -3, 3, 0 };
-    try expect(listsDistance(&list1, &list2) == 8);
+    try t.expect(listsDistance(&list1, &list2) == 8);
 }
 
 test similarityScore {
     const list1 = [_]i32{ 1, 2, 3 };
     const list2 = [_]i32{ 3, 3, 1 };
-    try expect(try similarityScore(&list1, &list2, talloc) == 7);
+    try t.expect(try similarityScore(&list1, &list2, t.allocator) == 7);
 }
