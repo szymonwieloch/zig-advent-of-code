@@ -10,8 +10,10 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("6.txt", .{});
     defer file.close();
-    var map, const gpos = try parseInput(file.reader().any(), alloc);
-    defer map.deinit();
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    var map, const gpos = try parseInput(&reader.interface, alloc);
+    defer map.deinit(alloc);
     var positions = try simulateGuardian(map, gpos, alloc);
     defer positions.deinit();
     const block_pos = try tryPlacingObstacles(&map, positions, gpos, alloc);
@@ -27,29 +29,29 @@ const Map = struct {
     xmax: isize,
     ymax: isize,
 
-    fn appendRow(self: *Map, row: std.ArrayList(Field)) !void {
+    fn appendRow(self: *Map, alloc: std.mem.Allocator, row: std.ArrayList(Field)) !void {
         if (self.map.items.len > 0) {
             if (row.items.len != self.ymax) return InputError.RowLengthMismatch;
         } else {
             self.ymax = @intCast(row.items.len);
         }
-        try self.map.append(row);
+        try self.map.append(alloc, row);
         self.xmax = @intCast(self.map.items.len);
     }
 
-    fn init(alloc: std.mem.Allocator) Map {
+    fn init() Map {
         return Map{
-            .map = std.ArrayList(std.ArrayList(Field)).init(alloc),
+            .map = std.ArrayList(std.ArrayList(Field)).empty,
             .xmax = 0,
             .ymax = 0,
         };
     }
 
-    fn deinit(self: Map) void {
-        for (self.map.items) |row| {
-            row.deinit();
+    fn deinit(self: *Map, alloc: std.mem.Allocator) void {
+        for (self.map.items) |*row| {
+            row.deinit(alloc);
         }
-        self.map.deinit();
+        self.map.deinit(alloc);
     }
 
     fn at(self: Map, x: isize, y: isize) ?Field {
@@ -98,34 +100,34 @@ const left = Direction{ .x = 0, .y = -1 };
 const PositionAndDirection = struct { pos: Position, dir: Direction };
 
 /// Parses the input stream
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ Map, Position }) {
-    var map = Map.init(alloc);
-    var row = std.ArrayList(Field).init(alloc);
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ Map, Position }) {
+    var map = Map.init();
+    var row = std.ArrayList(Field).empty;
     var gpos: ?Position = null;
-    defer row.deinit();
+    defer row.deinit(alloc);
     while (true) {
-        const byte = reader.readByte() catch |err| {
+        const byte = reader.takeByte() catch |err| {
             if (err == error.EndOfStream) {
                 if (row.items.len > 0) {
-                    try map.appendRow(row);
-                    row = std.ArrayList(Field).init(alloc);
+                    try map.appendRow(alloc, row);
+                    row = std.ArrayList(Field).empty;
                 }
                 break;
             } else return err;
         };
         switch (byte) {
-            '.' => try row.append(.empty),
-            '#' => try row.append(.obstacle),
+            '.' => try row.append(alloc, .empty),
+            '#' => try row.append(alloc, .obstacle),
             '\n' => {
-                try map.appendRow(row);
-                row = std.ArrayList(Field).init(alloc);
+                try map.appendRow(alloc, row);
+                row = std.ArrayList(Field).empty;
             },
             '^' => {
                 gpos = Position{
                     .x = map.xmax,
                     .y = @intCast(row.items.len),
                 };
-                try row.append(.empty);
+                try row.append(alloc, .empty);
             },
             else => {
                 std.debug.print("invalid character: {d}\n", .{byte});
@@ -156,13 +158,14 @@ const t = std.testing;
 fn parseExampleMap() !std.meta.Tuple(&.{ Map, Position }) {
     var stream = std.io.fixedBufferStream(example_input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return parseInput(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return parseInput(&new_reader.new_interface, t.allocator);
 }
 
 test parseInput {
     var map, const gpos = try parseExampleMap();
-    defer map.deinit();
+    defer map.deinit(t.allocator);
     try t.expectEqual(10, map.xmax);
     try t.expectEqual(10, map.ymax);
     try t.expectEqual(.empty, map.at(1, 3));
@@ -186,7 +189,7 @@ fn simulateGuardian(map: Map, gpos: Position, alloc: std.mem.Allocator) !std.Aut
 
 test "check example input from part 1" {
     var map, const gpos = try parseExampleMap();
-    defer map.deinit();
+    defer map.deinit(t.allocator);
     var positions = try simulateGuardian(map, gpos, t.allocator);
     defer positions.deinit();
     try t.expectEqual(41, positions.count());
@@ -234,7 +237,7 @@ fn guardianIsStuck(map: Map, gpos: Position, alloc: std.mem.Allocator) !bool {
 
 test "place obstacles" {
     var map, const gpos = try parseExampleMap();
-    defer map.deinit();
+    defer map.deinit(t.allocator);
     var positions = try simulateGuardian(map, gpos, t.allocator);
     defer positions.deinit();
     const valid_pos = try tryPlacingObstacles(&map, positions, gpos, t.allocator);
