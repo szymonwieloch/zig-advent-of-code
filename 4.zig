@@ -15,34 +15,6 @@ pub fn main() !void {
     std.debug.print("XMAS: {}\nX-MAS: {}\n", .{ xmas, x_mas });
 }
 
-// const Line = std.ArrayList(u8);
-
-// /// Safe wrapper around the input matrix - allows safe checks of indexes
-// const Matrix = struct {
-//     data: std.ArrayList(Line),
-//     xmax: isize,
-//     ymax: isize,
-
-//     pub fn init(data: std.ArrayList(Line)) Matrix {
-//         return Matrix{ .data = data, .xmax = @intCast(data.items.len), .ymax = if (data.items.len > 0) @intCast(data.items[0].items.len) else 0 };
-//     }
-
-//     pub fn isValid(self: *const Matrix, x: isize, y: isize) bool {
-//         return x >= 0 and x < self.xmax and y >= 0 and y < self.ymax;
-//     }
-
-//     pub fn get(self: *const Matrix, x: isize, y: isize) ?u8 {
-//         return if (self.isValid(x, y)) self.data.items[@intCast(x)].items[@intCast(y)] else null;
-//     }
-
-//     pub fn deinit(self: *const Matrix) void {
-//         for (self.data.items) |line| {
-//             line.deinit();
-//         }
-//         self.data.deinit();
-//     }
-// };
-
 const Matrix = common.Matrix(u8);
 const ParsingError = error{InvalidInput};
 

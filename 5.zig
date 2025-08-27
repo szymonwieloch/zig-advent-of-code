@@ -1,4 +1,4 @@
-//! Solution tot the challenge: https://adventofcode.com/2024/day/5
+//! Solution to the challenge: https://adventofcode.com/2024/day/5
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -22,17 +22,17 @@ const Rules = std.AutoHashMap(Rule, void);
 const Input = struct {
     rules: Rules,
     pages: std.ArrayList(Pages),
-    fn deinit(self: *Input) void {
+    fn deinit(self: *Input, alloc: std.mem.Allocator) void {
         self.rules.deinit();
-        for (self.pages.items) |pages| {
-            pages.deinit();
+        for (self.pages.items) |*pages| {
+            pages.deinit(alloc);
         }
-        self.pages.deinit();
+        self.pages.deinit(alloc);
     }
 
     fn init(alloc: std.mem.Allocator) Input {
         const rules = Rules.init(alloc);
-        const pages = std.ArrayList(Pages).init(alloc);
+        const pages = std.ArrayList(Pages).empty;
         return Input{ .rules = rules, .pages = pages };
     }
 };
@@ -47,31 +47,26 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("5.txt", .{});
     defer file.close();
-    var input = try parseInput(file.reader().any(), alloc);
-    defer input.deinit();
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+
+    var input = try parseInput(&reader.interface, alloc);
+    defer input.deinit(alloc);
     const part1 = try calcPart1(input);
     const part2 = try calcPart2(input, alloc);
     std.debug.print("Part 1: {}\nPart2: {}\n", .{ part1, part2 });
 }
 
 /// Parses the input stream
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input {
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Input {
     var result = Input.init(alloc);
-    errdefer result.deinit();
-    var line = std.ArrayList(u8).init(alloc);
-    defer line.deinit();
+    errdefer result.deinit(alloc);
+    var line_it = common.lineIterator(reader, alloc);
+    defer line_it.deinit();
     var mode = Mode.rules;
-    var end = false;
-    while (!end) {
-        line.clearRetainingCapacity();
-        reader.streamUntilDelimiter(line.writer(), '\n', null) catch |err| {
-            if (err != error.EndOfStream) {
-                return err;
-            }
-            if (line.items.len == 0) return result;
-            end = true;
-        };
-        if (line.items.len == 0) {
+    //var end = false;
+    while (line_it.next()) |line| {
+        if (line.len == 0) {
             if (mode != Mode.rules) {
                 return InputError.FormatError;
             }
@@ -79,12 +74,16 @@ fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input {
             continue;
         }
         if (mode == Mode.rules) {
-            const rule = try parseRule(line.items);
+            const rule = try parseRule(line);
             try result.rules.put(rule, void{});
         } else {
-            const pages = try parsePages(line.items, alloc);
-            errdefer pages.deinit();
-            try result.pages.append(pages);
+            var pages = try parsePages(line, alloc);
+            errdefer pages.deinit(alloc);
+            try result.pages.append(alloc, pages);
+        }
+    } else |err| {
+        if (err != error.EndOfStream) {
+            return err;
         }
     }
     return result;
@@ -106,12 +105,12 @@ fn parseRule(line: []const u8) !Rule {
 
 /// Parses a list of pages
 fn parsePages(line: []const u8, alloc: std.mem.Allocator) !Pages {
-    var pages = std.ArrayList(Int).init(alloc);
-    errdefer pages.deinit();
+    var pages = std.ArrayList(Int).empty;
+    errdefer pages.deinit(alloc);
     var it = std.mem.splitSequence(u8, line, ",");
     while (it.next()) |part| {
         const page = try std.fmt.parseInt(Int, part, 10);
-        try pages.append(page);
+        try pages.append(alloc, page);
     }
     return pages;
 }
@@ -171,8 +170,8 @@ fn sortPages(pages: []const Int, rules: Rules, alloc: std.mem.Allocator) !Pages 
     var r = try rules.clone();
     defer r.deinit();
     var result = try Pages.initCapacity(alloc, pages.len);
-    try result.appendSlice(pages);
-    errdefer result.deinit();
+    try result.appendSlice(alloc, pages);
+    errdefer result.deinit(alloc);
     var i = result.items;
     while (i.len > 1) {
         const last_idx = findLast(i, r) orelse {
@@ -180,7 +179,7 @@ fn sortPages(pages: []const Int, rules: Rules, alloc: std.mem.Allocator) !Pages 
             while (key_it.next()) |rule| {
                 std.debug.print("rule {}->{}\n", .{ rule.first, rule.second });
             }
-            std.debug.print("i={d}\n", .{i});
+            std.debug.print("i={any}\n", .{i});
             return InputError.FormatError;
         };
         //swap
@@ -218,7 +217,7 @@ fn calcPart2(input: Input, alloc: std.mem.Allocator) !Int {
         var rel_rules = try relevantRules(pages.items, input.rules, alloc);
         defer rel_rules.deinit();
         var ordered = try sortPages(pages.items, rel_rules, alloc);
-        defer ordered.deinit();
+        defer ordered.deinit(alloc);
         const mid = midValue(ordered.items) orelse return InputError.FormatError;
         result += mid;
     }
@@ -234,8 +233,8 @@ test "parseRule" {
 }
 
 test parsePages {
-    const pages = try parsePages("75,47,61,53,29", t.allocator);
-    defer pages.deinit();
+    var pages = try parsePages("75,47,61,53,29", t.allocator);
+    defer pages.deinit(t.allocator);
     try t.expectEqual(pages.items.len, 5);
     try t.expectEqual(pages.items[0], 75);
     try t.expectEqual(pages.items[1], 47);
@@ -292,13 +291,14 @@ const example =
 fn parseExampleInput() !Input {
     var stream = std.io.fixedBufferStream(example);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return parseInput(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return parseInput(&new_reader.new_interface, t.allocator);
 }
 
 test parseInput {
     var input = try parseExampleInput();
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     try t.expectEqual(input.rules.count(), 21);
     try t.expectEqual(input.pages.items.len, 6);
     try t.expectEqual(input.pages.items[0].items.len, 5);
@@ -311,13 +311,13 @@ test parseInput {
 
 test "example input - part 1" {
     var input = try parseExampleInput();
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     try t.expectEqual(143, calcPart1(input));
 }
 
 test sortPages {
     var input = try parseExampleInput();
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     const Case = struct { input: []const Int, want: []const Int };
     const cases = [_]Case{
         .{ .input = &[_]Int{ 61, 13, 29 }, .want = &[_]Int{ 61, 29, 13 } },
@@ -328,13 +328,13 @@ test sortPages {
         var rules = try relevantRules(case.input, input.rules, t.allocator);
         defer rules.deinit();
         var sorted = try sortPages(case.input, rules, t.allocator);
-        defer sorted.deinit();
+        defer sorted.deinit(t.allocator);
         try t.expectEqualSlices(Int, case.want, sorted.items);
     }
 }
 
 test "example input - part 2" {
     var input = try parseExampleInput();
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     try t.expectEqual(123, try calcPart2(input, t.allocator));
 }
