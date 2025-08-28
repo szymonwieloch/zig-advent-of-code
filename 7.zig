@@ -11,8 +11,10 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("7.txt", .{});
     defer file.close();
-    var eqs = try parseInput(file.reader().any(), alloc);
-    defer freeEquations(&eqs);
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    var eqs = try parseInput(&reader.interface, alloc);
+    defer freeEquations(alloc, &eqs);
     const result1 = totalCalibrationResult(eqs);
     const result2 = try totalCalibrationResult2(eqs);
     std.debug.print("Result - part 1: {d}\nResult - part 2: {d}\n", .{ result1, result2 });
@@ -26,41 +28,37 @@ const Equation = struct { test_value: Int, numbers: std.ArrayList(Int) };
 const Equations = std.ArrayList(Equation);
 
 /// Deinitializes Equations on a deep level
-fn freeEquations(eqs: *Equations) void {
-    for (eqs.items) |eq| {
-        eq.numbers.deinit();
+fn freeEquations(alloc: std.mem.Allocator, eqs: *Equations) void {
+    for (eqs.items) |*eq| {
+        eq.numbers.deinit(alloc);
     }
-    eqs.deinit();
+    eqs.deinit(alloc);
 }
 
 /// Parses input into a structure
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Equations {
-    var line = std.ArrayList(u8).init(alloc);
-    defer line.deinit();
-    var stop = false;
-    var result = Equations.init(alloc);
-    errdefer freeEquations(&result);
-    while (!stop) {
-        line.clearRetainingCapacity();
-        reader.streamUntilDelimiter(line.writer(), '\n', null) catch |err| {
-            if (err != error.EndOfStream) return err;
-            stop = true;
-        };
-        if (line.items.len == 0) continue;
-        var split_it = std.mem.splitSequence(u8, line.items, ": ");
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Equations {
+    var result = Equations.empty;
+    errdefer freeEquations(alloc, &result);
+    var line_it = common.lineIterator(reader, alloc);
+    defer line_it.deinit();
+    while (line_it.next()) |line| {
+        if (line.len == 0) continue;
+        var split_it = std.mem.splitSequence(u8, line, ": ");
         const part1 = split_it.next() orelse return InputError.FormatError;
         const test_value = try std.fmt.parseInt(Int, part1, 10);
         const part2 = split_it.next() orelse return InputError.FormatError;
         if (split_it.next() != null) return InputError.FormatError;
 
         var num_it = std.mem.splitScalar(u8, part2, ' ');
-        var eq = Equation{ .test_value = test_value, .numbers = std.ArrayList(Int).init(alloc) };
-        errdefer eq.numbers.deinit();
+        var eq = Equation{ .test_value = test_value, .numbers = std.ArrayList(Int).empty };
+        errdefer eq.numbers.deinit(alloc);
         while (num_it.next()) |num| {
             const parsed = try std.fmt.parseInt(Int, num, 10);
-            try eq.numbers.append(parsed);
+            try eq.numbers.append(alloc, parsed);
         }
-        try result.append(eq);
+        try result.append(alloc, eq);
+    } else |err| {
+        if (err != error.EndOfStream) return err;
     }
     return result;
 }
@@ -81,13 +79,14 @@ const example_input =
 fn parseExampleInput() !Equations {
     var stream = std.io.fixedBufferStream(example_input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return try parseInput(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return try parseInput(&new_reader.new_interface, t.allocator);
 }
 
 test "parse example input" {
     var data = try parseExampleInput();
-    defer freeEquations(&data);
+    defer freeEquations(t.allocator, &data);
     try t.expectEqual(9, data.items.len);
     try t.expectEqual(data.items[3].test_value, 156);
     try t.expectEqualSlices(Int, &[_]Int{ 81, 40, 27 }, data.items[1].numbers.items);
@@ -133,7 +132,7 @@ fn totalCalibrationResult(eqs: Equations) Int {
 
 test "test example input" {
     var eqs = try parseExampleInput();
-    defer freeEquations(&eqs);
+    defer freeEquations(t.allocator, &eqs);
 
     const result = totalCalibrationResult(eqs);
     try t.expectEqual(3749, result);
@@ -214,7 +213,7 @@ fn totalCalibrationResult2(eqs: Equations) !Int {
 
 test "test example input - part 2" {
     var eqs = try parseExampleInput();
-    defer freeEquations(&eqs);
+    defer freeEquations(t.allocator, &eqs);
 
     const result = try totalCalibrationResult2(eqs);
     try t.expectEqual(11387, result);

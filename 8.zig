@@ -11,8 +11,10 @@ pub fn main() !void {
     const alloc = gpa.allocator();
     var file = try std.fs.cwd().openFile("8.txt", .{});
     defer file.close();
-    var input, const dim = try parseInput(file.reader().any(), alloc);
-    defer freeInput(&input);
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    var input, const dim = try parseInput(&reader.interface, alloc);
+    defer freeInput(alloc, &input);
 
     const result1 = try allAntinodes(input, dim, alloc);
     const result2 = try allAntinodesWithResonantHarmonics(input, dim, alloc);
@@ -47,21 +49,21 @@ const Dimensions = struct {
 
 const Input = std.AutoHashMap(u8, std.ArrayList(Position));
 
-fn freeInput(in: *Input) void {
+fn freeInput(alloc: std.mem.Allocator, in: *Input) void {
     var val_it = in.valueIterator();
     while (val_it.next()) |list| {
-        list.deinit();
+        list.deinit(alloc);
     }
     in.deinit();
 }
 
 const ParsingError = error{DimensionMismatch};
 
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ Input, Dimensions }) {
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !std.meta.Tuple(&.{ Input, Dimensions }) {
     var line_it = common.lineIterator(reader, alloc);
     defer line_it.deinit();
     var result = Input.init(alloc);
-    errdefer freeInput(&result);
+    errdefer freeInput(alloc, &result);
     var xmax: isize = 0;
     var ymax: isize = 0;
     var x: isize = 0;
@@ -73,8 +75,8 @@ fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !std.meta.Tupl
         ymax += 1;
         for (line, 0..) |ch, y| {
             if (ch == '.') continue;
-            const entry = try result.getOrPutValue(ch, std.ArrayList(Position).init(alloc));
-            try entry.value_ptr.*.append(Position{ .x = @intCast(x), .y = @intCast(y) });
+            const entry = try result.getOrPutValue(ch, std.ArrayList(Position).empty);
+            try entry.value_ptr.*.append(alloc, Position{ .x = @intCast(x), .y = @intCast(y) });
         }
         x += 1;
     } else |err| {
@@ -101,13 +103,14 @@ const example_input =
 fn parseExampleInput() !std.meta.Tuple(&.{ Input, Dimensions }) {
     var stream = std.io.fixedBufferStream(example_input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return parseInput(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return parseInput(&new_reader.new_interface, t.allocator);
 }
 
 test "parse example input" {
     var input, const dim = try parseExampleInput();
-    defer freeInput(&input);
+    defer freeInput(t.allocator, &input);
     try t.expectEqual(2, input.count());
     try t.expectEqual(12, dim.xmax);
     try t.expectEqual(12, dim.ymax);
@@ -153,7 +156,7 @@ fn allAntinodes(input: Input, dim: Dimensions, alloc: std.mem.Allocator) !usize 
 
 test "check example input" {
     var input, const dim = try parseExampleInput();
-    defer freeInput(&input);
+    defer freeInput(t.allocator, &input);
     const count = try allAntinodes(input, dim, t.allocator);
     try t.expectEqual(14, count);
 }
@@ -190,7 +193,7 @@ fn allAntinodesWithResonantHarmonics(input: Input, dim: Dimensions, alloc: std.m
 
 test "check example input - part 2" {
     var input, const dim = try parseExampleInput();
-    defer freeInput(&input);
+    defer freeInput(t.allocator, &input);
     const count = try allAntinodesWithResonantHarmonics(input, dim, t.allocator);
     try t.expectEqual(34, count);
 }
