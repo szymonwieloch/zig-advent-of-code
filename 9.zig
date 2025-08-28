@@ -8,16 +8,16 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    const input = try common.parseFile(Input, "9.txt", alloc, parseInput);
-    defer input.deinit();
+    var input = try common.parseFile(Input, "9.txt", alloc, parseInput);
+    defer input.deinit(alloc);
     pack(input.items);
     const result1 = checksum(input.items);
     std.debug.print("Checksum (part 1): {d}\n", .{result1});
     var input2 = try common.parseFile(Input2, "9.txt", alloc, parseInput2);
     defer input2.deinit();
     packBlocks(&input2);
-    const long_result = try longVersion(input2.files.items, alloc);
-    defer long_result.deinit();
+    var long_result = try longVersion(input2.files.items, alloc);
+    defer long_result.deinit(alloc);
     const result2 = checksum(long_result.items);
     std.debug.print("Checksum (part 2): {d}\n", .{result2});
 }
@@ -36,22 +36,22 @@ const Input2 = struct {
     alloc: std.mem.Allocator,
 
     fn init(alloc: std.mem.Allocator) Input2 {
-        return Input2{ .files = std.ArrayList(IndexedFile).init(alloc), .spaces = std.ArrayList(IndexedSpace).init(alloc), .alloc = alloc };
+        return Input2{ .files = std.ArrayList(IndexedFile).empty, .spaces = std.ArrayList(IndexedSpace).empty, .alloc = alloc };
     }
 
     fn deinit(self: *Input2) void {
-        self.files.deinit();
-        self.spaces.deinit();
+        self.files.deinit(self.alloc);
+        self.spaces.deinit(self.alloc);
     }
 };
 
 /// Parses input in away that is specific to part 1
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input {
-    var result = Input.init(alloc);
-    errdefer result.deinit();
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Input {
+    var result = Input.empty;
+    errdefer result.deinit(alloc);
     var file_idx: File = 0;
     var is_file = true;
-    while (reader.readByte()) |ch| {
+    while (reader.takeByte()) |ch| {
         if (ch == '\n') break;
         if (ch < '0' or ch > '9') {
             std.debug.print("bad char: {d}\n", .{ch});
@@ -60,7 +60,7 @@ fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input {
         const digit = ch - '0';
         const val: ?File = if (is_file) file_idx else null;
         for (0..digit) |_| {
-            try result.append(val);
+            try result.append(alloc, val);
         }
         if (is_file) file_idx += 1;
         is_file = !is_file;
@@ -74,7 +74,7 @@ const example_input = "2333133121414131402";
 
 test "parse example input" {
     var input = try common.parseExample(Input, example_input, parseInput);
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     const expected = [_]?File{ 0, 0, null, null, null, 1, 1, 1, null, null, null, 2, null, null, null, 3, 3, 3, null, 4, 4, null, 5, 5, 5, 5, null, 6, 6, 6, 6, null, 7, 7, 7, null, 8, 8, 8, 8, 9, 9 };
     try t.expectEqualSlices(?File, &expected, input.items);
 }
@@ -121,7 +121,7 @@ const example_packed = [_]?File{ 0, 0, 9, 9, 8, 1, 1, 1, 8, 8, 8, 2, 7, 7, 7, 3,
 
 test pack {
     var input = try common.parseExample(Input, example_input, parseInput);
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     pack(input.items);
 
     try t.expectEqualSlices(?File, &example_packed, input.items);
@@ -143,13 +143,13 @@ test checksum {
 }
 
 /// Parses input in a way that is specific to part 2
-fn parseInput2(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input2 {
+fn parseInput2(reader: *std.io.Reader, alloc: std.mem.Allocator) !Input2 {
     var result = Input2.init(alloc);
     errdefer result.deinit();
     var file_idx: File = 0;
     var is_file = true;
     var pos: usize = 0;
-    while (reader.readByte()) |ch| {
+    while (reader.takeByte()) |ch| {
         if (ch == '\n') break;
         if (ch < '0' or ch > '9') {
             std.debug.print("bad char: {d}\n", .{ch});
@@ -157,9 +157,9 @@ fn parseInput2(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Input2 {
         }
         const digit = ch - '0';
         if (is_file) {
-            try result.files.append(IndexedFile{ .pos = pos, .file = file_idx, .len = digit });
+            try result.files.append(alloc, IndexedFile{ .pos = pos, .file = file_idx, .len = digit });
         } else if (digit > 0) {
-            try result.spaces.append(IndexedSpace{ .pos = pos, .len = digit });
+            try result.spaces.append(alloc, IndexedSpace{ .pos = pos, .len = digit });
         }
         pos += digit;
         if (is_file) file_idx += 1;
@@ -225,12 +225,12 @@ test packBlocks {
 /// Repacks data into a buffer with individual slots for each file.
 /// This is needed for checksum calculation.
 fn longVersion(val: []const IndexedFile, alloc: std.mem.Allocator) !std.ArrayList(?File) {
-    if (val.len == 0) return std.ArrayList(?File).init(alloc);
+    if (val.len == 0) return std.ArrayList(?File).empty;
     const result_len = val[val.len - 1].pos + val[val.len - 1].len;
     var result = try std.ArrayList(?File).initCapacity(alloc, result_len);
-    errdefer result.deinit();
+    errdefer result.deinit(alloc);
     for (0..result_len) |_| {
-        try result.append(null);
+        try result.append(alloc, null);
     }
 
     for (val) |file| {
@@ -245,8 +245,8 @@ test longVersion {
     var input = try common.parseExample(Input2, example_input, parseInput2);
     defer input.deinit();
     packBlocks(&input);
-    const long_result = try longVersion(input.files.items, input.alloc);
-    defer long_result.deinit();
+    var long_result = try longVersion(input.files.items, input.alloc);
+    defer long_result.deinit(t.allocator);
     const expected = [_]?File{ 0, 0, 9, 9, 2, 1, 1, 1, 7, 7, 7, null, 4, 4, null, 3, 3, 3, null, null, null, null, 5, 5, 5, 5, null, 6, 6, 6, 6, null, null, null, null, null, 8, 8, 8, 8 };
     try t.expectEqualSlices(?File, &expected, long_result.items);
 }

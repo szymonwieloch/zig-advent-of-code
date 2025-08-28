@@ -11,8 +11,8 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    const input = try common.parseFile(Matrix, "10.txt", alloc, parseInput);
-    defer input.deinit();
+    var input = try common.parseFile(Matrix, "10.txt", alloc, parseInput);
+    defer input.deinit(alloc);
     const tailheads_sum = try findTrails(input, alloc);
     std.debug.print("Sum of all trails: {}\n", .{tailheads_sum});
     const rating = findRating(input);
@@ -28,19 +28,19 @@ fn parseChar(c: u8) !Height {
 }
 
 /// Parses input file, returns a 2D matrix representing the map.
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Matrix {
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Matrix {
     var line_it = common.lineIterator(reader, alloc);
     defer line_it.deinit();
-    var result = Matrix.init(alloc);
-    errdefer result.deinit();
+    var result = Matrix.empty;
+    errdefer result.deinit(alloc);
     while (line_it.next()) |line| {
-        var row = Matrix.Row.init(alloc);
-        errdefer row.deinit();
+        var row = Matrix.Row.empty;
+        errdefer row.deinit(alloc);
         for (line) |c| {
             const value = try parseChar(c);
-            try row.append(value);
+            try row.append(alloc, value);
         }
-        try result.appendRow(row);
+        try result.appendRow(alloc, row);
     } else |err| {
         if (err != error.EndOfStream) {
             return err;
@@ -63,7 +63,7 @@ const example_input =
 
 test "parse example input" {
     var m = try common.parseExample(Matrix, example_input, parseInput);
-    defer m.deinit();
+    defer m.deinit(t.allocator);
     try t.expectEqual(8, m.at(0, 0));
     try t.expectEqual(3, m.at(0, 7));
     try t.expectEqual(1, m.at(7, 0));
@@ -127,8 +127,8 @@ fn findTrails(m: Matrix, alloc: std.mem.Allocator) !usize {
 }
 
 test "data from the example" {
-    const m = try common.parseExample(Matrix, example_input, parseInput);
-    defer m.deinit();
+    var m = try common.parseExample(Matrix, example_input, parseInput);
+    defer m.deinit(t.allocator);
     try t.expectEqual(36, try findTrails(m, t.allocator));
 }
 
@@ -163,7 +163,7 @@ fn findRatingRec(m: Matrix, x: isize, y: isize, curr: Height) usize {
 }
 
 test "rating from the example" {
-    const m = try common.parseExample(Matrix, example_input, parseInput);
-    defer m.deinit();
+    var m = try common.parseExample(Matrix, example_input, parseInput);
+    defer m.deinit(t.allocator);
     try t.expectEqual(81, findRating(m));
 }
