@@ -59,21 +59,22 @@ test lineIterator {
 }
 
 /// Common procedure of parsing input file into a structure.
-pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocator, comptime parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+pub fn parseFile(comptime Input: type, path: []const u8, alloc: std.mem.Allocator, comptime parser: fn (*std.io.Reader, std.mem.Allocator) anyerror!Input) anyerror!Input {
     var file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const in_stream = buf_reader.reader().any();
-    return parser(in_stream, alloc);
+    var buffer: [1024]u8 = undefined;
+    var reader = file.reader(&buffer);
+    return parser(&reader.interface, alloc);
 }
 
 /// Common procedure of parsing example input into a structure.
 /// To be used only in tests.
-pub fn parseExample(comptime Input: type, input: []const u8, comptime parser: fn (std.io.AnyReader, std.mem.Allocator) anyerror!Input) anyerror!Input {
+pub fn parseExample(comptime Input: type, input: []const u8, comptime parser: fn (*std.io.Reader, std.mem.Allocator) anyerror!Input) anyerror!Input {
     var stream = std.io.fixedBufferStream(input);
     const reader = stream.reader();
-    const anyReader = reader.any();
-    return parser(anyReader, t.allocator);
+    var buffer: [1024]u8 = undefined;
+    var new_reader = reader.adaptToNewApi(&buffer);
+    return parser(&new_reader.new_interface, t.allocator);
 }
 
 pub const InputError = error{ RowLengthMismatch, InvalidCharacter };
