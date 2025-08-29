@@ -22,12 +22,7 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    var file = try std.fs.cwd().openFile("1.txt", .{});
-    defer file.close();
-
-    var buffer: [1024]u8 = undefined;
-    var reader = file.reader(&buffer);
-    var lists = try readInput(alloc, &reader.interface);
+    var lists = try common.parseFile(Lists, "1.txt", alloc, readInput);
     defer lists.list1.deinit(alloc);
     defer lists.list2.deinit(alloc);
     std.mem.sort(i32, lists.list1.items, {}, comptime std.sort.asc(i32));
@@ -38,7 +33,7 @@ pub fn main() !void {
 }
 
 /// Reads two lists from the input file.
-fn readInput(alloc: std.mem.Allocator, in_stream: *std.io.Reader) !Lists {
+fn readInput(in_stream: *std.io.Reader, alloc: std.mem.Allocator) !Lists {
     var list1 = std.ArrayList(i32).empty;
     errdefer list1.deinit(alloc);
     var list2 = std.ArrayList(i32).empty;
@@ -143,11 +138,7 @@ test "parse line with invalid characters" {
 
 test "parse input file" {
     const input = "1 2\n3 4\n";
-    var stream = std.io.fixedBufferStream(input);
-    const reader = stream.reader();
-    var buffer: [1024]u8 = undefined;
-    var new_reader = reader.adaptToNewApi(&buffer);
-    var lists = try readInput(t.allocator, &new_reader.new_interface);
+    var lists = try common.parseExample(Lists, input, readInput);
     try t.expect(lists.list1.items.len == 2);
     try t.expect(lists.list2.items.len == 2);
     try t.expect(lists.list1.items[0] == 1);

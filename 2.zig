@@ -8,12 +8,7 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    var file = try std.fs.cwd().openFile("2.txt", .{});
-    defer file.close();
-    var buffer: [1024]u8 = undefined;
-    var reader = file.reader(&buffer);
-
-    const safe1, const safe2 = try totalSafe(&reader.interface, alloc);
+    const safe1, const safe2 = try common.parseFile(std.meta.Tuple(&.{ usize, usize }), "2.txt", alloc, totalSafe);
     std.debug.print("Safe: {}\nSafe after removing: {}\n", .{ safe1, safe2 });
 }
 
@@ -158,11 +153,7 @@ test "totalSafe" {
         \\8 6 4 4 1
         \\1 3 6 7 9
     ;
-    var stream = std.io.fixedBufferStream(input);
-    const reader = stream.reader();
-    var buffer: [1024]u8 = undefined;
-    var new_reader = reader.adaptToNewApi(&buffer);
-    const result, const after_removing = try totalSafe(&new_reader.new_interface, t.allocator);
+    const result, const after_removing = try common.parseExample(std.meta.Tuple(&.{ usize, usize }), input, totalSafe);
     try t.expectEqual(result, 2);
     try t.expectEqual(after_removing, 4);
 }

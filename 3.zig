@@ -8,13 +8,12 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    var file = try std.fs.cwd().openFile("3.txt", .{});
-    defer file.close();
-    var buffer: [1024]u8 = undefined;
-    var reader = file.reader(&buffer);
-    const mulSum = try sumMulsInStream(&reader.interface, alloc);
-    try reader.seekTo(0);
-    const mulSumWithDoDonts = try sumMulsInStreamWithDoDonts(&reader.interface, alloc);
+    // var file = try std.fs.cwd().openFile("3.txt", .{});
+    // defer file.close();
+    // var buffer: [1024]u8 = undefined;
+    // var reader = file.reader(&buffer);
+    const mulSum = try common.parseFile(usize, "3.txt", alloc, sumMulsInStream);
+    const mulSumWithDoDonts = try common.parseFile(usize, "3.txt", alloc, sumMulsInStreamWithDoDonts);
     std.debug.print("Result: {}\nWith do/don'ts: {}\n", .{ mulSum, mulSumWithDoDonts });
 }
 
@@ -195,11 +194,8 @@ test sumMuls {
 
 const example1 = "xmul(2,4)%&mul[3,7]!@^do_not_mul(5,5)+mul(32,64]then(mul(11,8)mul(8,5))";
 test "check example from description" {
-    var stream = std.io.fixedBufferStream(example1);
-    const reader = stream.reader();
-    var buffer: [1024]u8 = undefined;
-    var new_reader = reader.adaptToNewApi(&buffer);
-    try t.expect(try sumMulsInStream(&new_reader.new_interface, t.allocator) == 161);
+    const result = try common.parseExample(usize, example1, sumMulsInStream);
+    try t.expect(result == 161);
 }
 
 const example2 = "xmul(2,4)&mul[3,7]!^don't()_mul(5,5)+mul(32,64](mul(11,8)undo()?mul(8,5))";
