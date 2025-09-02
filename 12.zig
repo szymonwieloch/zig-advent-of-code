@@ -9,6 +9,11 @@ const Field = u8;
 const Matrix = common.Matrix(Field);
 const Position = common.Position;
 const PositionSet = std.AutoHashMap(Position, void);
+const FencePosition = struct {
+    pos: Position,
+    horizontal: bool,
+};
+const FencePositionSet = std.AutoHashMap(FencePosition, void);
 
 const directions = [_]common.Vector{
     common.Vector{ .x = 0, .y = -1 }, // up
@@ -21,22 +26,23 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    const input = try common.parseFile(Matrix, "12.txt", alloc, parseInput);
-    defer input.deinit();
-    const total_price = try splitIntoRegions(input, alloc);
-    std.debug.print("Total price: {d}\n", .{total_price});
+    var input = try common.parseFile(Matrix, "12.txt", alloc, parseInput);
+    defer input.deinit(alloc);
+    var p1 = Part1Calculation{ .total_price = 0 };
+    const total_price = try splitIntoRegions(input, alloc, &p1);
+    std.debug.print("Total price: {}\n", .{total_price});
 }
 
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Matrix {
-    var result = Matrix.init(alloc);
-    errdefer result.deinit();
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Matrix {
+    var result = Matrix.empty;
+    errdefer result.deinit(alloc);
     var line_it = common.lineIterator(reader, alloc);
     defer line_it.deinit();
     while (line_it.next()) |line| {
-        var row = Matrix.Row.init(alloc);
-        errdefer row.deinit();
-        try row.appendSlice(line);
-        try result.appendRow(row);
+        var row = Matrix.Row.empty;
+        errdefer row.deinit(alloc);
+        try row.appendSlice(alloc, line);
+        try result.appendRow(alloc, row);
     } else |err| {
         if (err != error.EndOfStream) return err;
     }
@@ -58,7 +64,7 @@ const example_input =
 
 test "parse example input" {
     var input = try common.parseExample(Matrix, example_input, parseInput);
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     try t.expectEqual(10, input.xSize());
     try t.expectEqual(10, input.ySize());
     try t.expectEqual('R', input.at(0, 0));
@@ -67,24 +73,29 @@ test "parse example input" {
     try t.expectEqual('M', input.at(9, 0));
 }
 
-fn splitIntoRegions(matrix: Matrix, alloc: std.mem.Allocator) !usize {
+const Part1Calculation = struct {
+    total_price: usize,
+    fn onRegion(self: *Part1Calculation, region: PositionSet) void {
+        self.total_price += price(region);
+    }
+};
+
+fn splitIntoRegions(matrix: Matrix, alloc: std.mem.Allocator, region_handler: anytype) !void {
     var visited = PositionSet.init(alloc);
     defer visited.deinit();
-    var total_price: usize = 0;
     for (0..@intCast(matrix.xSize())) |idx| {
         for (0..@intCast(matrix.ySize())) |idy| {
             const pos = Position{ .x = @intCast(idx), .y = @intCast(idy) };
             if (visited.contains(pos)) continue;
             var region = try findRegion(matrix, pos, alloc);
             defer region.deinit();
-            total_price += price(region);
+            region_handler.onRegion(region);
             var key_it = region.keyIterator();
             while (key_it.next()) |key| {
                 try visited.put(key.*, {});
             }
         }
     }
-    return total_price;
 }
 
 /// Finds a region in the matrix starting from the given position.
@@ -93,16 +104,16 @@ fn findRegion(matrix: Matrix, pos: Position, alloc: std.mem.Allocator) !Position
     errdefer region.deinit();
     try region.put(pos, {});
     const ch = matrix.atPos(pos) orelse unreachable;
-    var queue = std.ArrayList(Position).init(alloc);
-    defer queue.deinit();
-    try queue.append(pos);
+    var queue = std.ArrayList(Position).empty;
+    defer queue.deinit(alloc);
+    try queue.append(alloc, pos);
     while (queue.items.len > 0) {
         const curr_pos = queue.pop() orelse unreachable;
         for (directions) |dir| {
             const new_pos = curr_pos.move(dir);
             if (matrix.atPos(new_pos) == ch and !region.contains(new_pos)) {
                 try region.put(new_pos, {});
-                try queue.append(new_pos);
+                try queue.append(alloc, new_pos);
             }
         }
     }
@@ -124,9 +135,37 @@ fn price(region: PositionSet) usize {
     return perimeter * region.count();
 }
 
+fn regionFences(region: PositionSet, alloc: std.mem.Allocator) !FencePositionSet {
+    var fences = FencePositionSet.init(alloc);
+    errdefer fences.deinit();
+    var key_it = region.keyIterator();
+    while (key_it.next()) |pos| {
+        for (directions) |dir| {
+            const neighbor = pos.move(dir);
+            if (region.contains(neighbor)) continue;
+            try fences.put(fenceBetween(pos, neighbor), {});
+        }
+    }
+    return fences;
+}
+
+fn fenceBetween(pos1: Position, pos2: Position) FencePosition {
+    if (pos1.x == pos2.x) {
+        assert(common.abs(pos1.y - pos2.y) == 1);
+        const pos = if (pos1.y < pos2.y) pos1 else pos2;
+        return FencePosition{ .pos = pos, .horizontal = false };
+    } else if (pos1.y == pos2.y) {
+        assert(common.abs(pos1.x - pos2.x) == 1);
+        const pos = if (pos1.x < pos2.x) pos1 else pos2;
+        return FencePosition{ .pos = pos, .horizontal = true };
+    } else {
+        unreachable;
+    }
+}
+
 test "find region and check its price" {
     var input = try common.parseExample(Matrix, example_input, parseInput);
-    defer input.deinit();
+    defer input.deinit(t.allocator);
     var reg1 = try findRegion(input, .{ .x = 9, .y = 1 }, t.allocator);
     defer reg1.deinit();
     try t.expectEqual(5, reg1.count());
@@ -139,7 +178,8 @@ test "find region and check its price" {
 
 test "calculate total cost of the example map" {
     var input = try common.parseExample(Matrix, example_input, parseInput);
-    defer input.deinit();
-    const total_price = try splitIntoRegions(input, t.allocator);
-    try t.expectEqual(1930, total_price);
+    defer input.deinit(t.allocator);
+    var p1: Part1Calculation = Part1Calculation{ .total_price = 0 };
+    try splitIntoRegions(input, t.allocator, &p1);
+    try t.expectEqual(1930, p1.total_price);
 }

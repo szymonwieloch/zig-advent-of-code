@@ -9,10 +9,10 @@ pub fn main() !void {
     var gpa = common.Allocator{};
     defer common.checkGpa(&gpa);
     const alloc = gpa.allocator();
-    const input = try common.parseFile(Day, "11.txt", alloc, parseInput);
-    defer input.deinit();
-    const day25 = try blinkNTimes(input.items, 25, alloc);
-    defer day25.deinit();
+    var input = try common.parseFile(Day, "11.txt", alloc, parseInput);
+    defer input.deinit(alloc);
+    var day25 = try blinkNTimes(input.items, 25, alloc);
+    defer day25.deinit(alloc);
     std.debug.print("Rocks after 25 days: {d}\n", .{day25.items.len});
     var counted = try countRocks(input.items, alloc);
     defer counted.deinit();
@@ -33,16 +33,16 @@ const Day = std.ArrayList(Int);
 const CountedDay = std.AutoHashMap(Int, usize);
 
 /// Parses the input file.
-fn parseInput(reader: std.io.AnyReader, alloc: std.mem.Allocator) !Day {
-    var result = Day.init(alloc);
-    errdefer result.deinit();
-    var line = std.ArrayList(u8).init(alloc);
-    defer line.deinit();
-    try reader.streamUntilDelimiter(line.writer(), '\n', null);
-    var part_it = std.mem.splitScalar(u8, line.items, ' ');
+fn parseInput(reader: *std.io.Reader, alloc: std.mem.Allocator) !Day {
+    var result = Day.empty;
+    errdefer result.deinit(alloc);
+    var line_it = common.lineIterator(reader, alloc);
+    defer line_it.deinit();
+    const line = try line_it.next();
+    var part_it = std.mem.splitScalar(u8, line, ' ');
     while (part_it.next()) |part| {
         const num = try std.fmt.parseInt(Int, part, 10);
-        try result.append(num);
+        try result.append(alloc, num);
     }
     return result;
 }
@@ -51,59 +51,59 @@ const example_input = "125 17\n";
 
 test "parseInput" {
     var day = try common.parseExample(Day, example_input, parseInput);
-    defer day.deinit();
+    defer day.deinit(t.allocator);
     try t.expectEqualSlices(Int, &[_]Int{ 125, 17 }, day.items);
 }
 
 /// Emulates one blink using a naive approach.
 fn blinkOnce(prev: []const Int, alloc: std.mem.Allocator) !Day {
-    var result = Day.init(alloc);
-    errdefer result.deinit();
+    var result = Day.empty;
+    errdefer result.deinit(alloc);
     for (prev) |rock| {
         if (rock == 0) {
-            try result.append(1);
+            try result.append(alloc, 1);
             continue;
         }
         const nums = split(rock);
         if (nums) |pair| {
             const a, const b = pair;
-            try result.append(a);
-            try result.append(b);
+            try result.append(alloc, a);
+            try result.append(alloc, b);
             continue;
         }
-        try result.append(rock * 2024);
+        try result.append(alloc, rock * 2024);
     }
     return result;
 }
 
 test blinkOnce {
-    const next = try blinkOnce(&[_]Int{ 0, 1, 10, 99, 999 }, t.allocator);
-    defer next.deinit();
+    var next = try blinkOnce(&[_]Int{ 0, 1, 10, 99, 999 }, t.allocator);
+    defer next.deinit(t.allocator);
     try t.expectEqualSlices(Int, &[_]Int{ 1, 2024, 1, 0, 9, 9, 2021976 }, next.items);
 }
 
 /// Emulates n blinks using a naive approach.
 fn blinkNTimes(input: []const Int, n: usize, alloc: std.mem.Allocator) !Day {
-    var curr = Day.init(alloc);
-    errdefer curr.deinit();
-    try curr.appendSlice(input);
+    var curr = Day.empty;
+    errdefer curr.deinit(alloc);
+    try curr.appendSlice(alloc, input);
     for (0..n) |_| {
         const next = try blinkOnce(curr.items, alloc);
-        curr.deinit();
+        curr.deinit(alloc);
         curr = next;
     }
     return curr;
 }
 
 test "handle example input" {
-    const input = try common.parseExample(Day, example_input, parseInput);
-    defer input.deinit();
-    const day6 = try blinkNTimes(input.items, 6, t.allocator);
+    var input = try common.parseExample(Day, example_input, parseInput);
+    defer input.deinit(t.allocator);
+    var day6 = try blinkNTimes(input.items, 6, t.allocator);
     try t.expectEqual(22, day6.items.len);
-    defer day6.deinit();
-    const day25 = try blinkNTimes(input.items, 25, t.allocator);
+    defer day6.deinit(t.allocator);
+    var day25 = try blinkNTimes(input.items, 25, t.allocator);
     try t.expectEqual(55312, day25.items.len);
-    defer day25.deinit();
+    defer day25.deinit(t.allocator);
 }
 
 /// Splits the input number into two numbers.
