@@ -178,3 +178,91 @@ test Matrix {
     try t.expectEqual(3, m.xSize());
     try t.expectEqual(3, m.ySize());
 }
+
+pub fn abs(comptime T: type, value: T) T {
+    return if (value < 0) -value else value;
+}
+
+fn DisjointSet(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        const Data = struct {
+            parent: usize,
+            rank: u32,
+        };
+
+        parent: std.AutoHashMap(T, usize),
+        rank: std.ArrayList(Data),
+
+        pub fn init(alloc: std.mem.Allocator) Self {
+            return Self{
+                .parent = std.AutoHashMap(T, usize).init(alloc),
+                .rank = std.ArrayList(Data).empty,
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.parent.deinit();
+            self.rank.deinit(self.parent.allocator);
+        }
+
+        fn makeOrGetSet(self: *Self, val: T) !usize {
+            //insert but do not override existing one
+            var entry = try self.ids.parent.getOrPut(val);
+            if (entry.found_existing) {
+                return entry.value;
+            } else {
+                const next_id = self.ids.len();
+                try self.ids.append(self.parent.allocator, val);
+                entry.value = next_id;
+                return next_id;
+            }
+        }
+
+        fn findWithPathCompression(data_by_id: std.ArrayList(Data), id: usize) usize {
+            var parent = data_by_id[id].parent;
+            if (parent != id) {
+                parent = Self.findWithPathCompression(data_by_id, parent);
+                data_by_id[id].parent = parent;
+            }
+            return parent;
+        }
+
+        // fn find(self: *Self, item: T) !T {
+        //     var cursor = try self.parent.get(item) orelse return item;
+        //     if (cursor.* != item) {
+        //         cursor.* = try self.find(cursor.*);
+        //         try self.parent.put(item, cursor.*);
+        //     }
+        //     return cursor.*;
+        // }
+
+        // pub fn union(self: *Self, a: T, b: T) !void {
+        //     const root_a = try self.find(a);
+        //     const root_b = try self.find(b);
+        //     if (root_a == root_b) return;
+
+        //     var rank_a = try self.rank.get(root_a) orelse &usize(0);
+        //     var rank_b = try self.rank.get(root_b) orelse &usize(0);
+
+        //     if (rank_a.* < rank_b.*) {
+        //         try self.parent.put(root_a, root_b);
+        //     } else if (rank_a.* > rank_b.*) {
+        //         try self.parent.put(root_b, root_a);
+        //     } else {
+        //         try self.parent.put(root_b, root_a);
+        //         rank_a.* += 1;
+        //         try self.rank.put(root_a, rank_a.*);
+        //     }
+        // }
+
+        // pub fn deinit(self: *Self) void {
+        //     self.parent.deinit();
+        //     self.rank.deinit();
+        // }
+    };
+}
+test "create and destroy DisjointSet" {
+    var ds = DisjointSet(u8).init(t.allocator);
+    ds.deinit();
+}
